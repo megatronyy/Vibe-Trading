@@ -105,3 +105,9 @@ AGENTS.md
 wiki/alpha-library/manifest.json
 wiki/alpha-library/content/
 bench_report.json
+
+# analysis/ 目录(生成产物/数据/日志/图)整体不纳入仓库
+analysis/
+# Flutter 移动端工程(本地开发,不提交)
+frontend-app/android/
+frontend-app/ios/
