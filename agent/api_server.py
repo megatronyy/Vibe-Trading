@@ -286,6 +286,18 @@ register_alpha_routes(app)
 from src.api.auth_routes import register_auth_routes  # noqa: E402
 register_auth_routes(app)
 
+# --- User auth (registration / login / JWT) ---
+from src.auth.routes import register_auth_routes as register_user_auth_routes  # noqa: E402
+register_user_auth_routes(app)
+
+# --- One-shot user isolation migration (idempotent) ---
+from src.auth.migration import run_if_needed as _run_auth_migration  # noqa: E402
+try:
+    _run_auth_migration()
+except Exception as _mig_err:
+    import logging
+    logging.getLogger(__name__).warning("auth migration failed (non-fatal): %s", _mig_err)
+
 # --- OpenBB Workspace agent bridge (GET /agents.json, POST /v1/query) ---
 # No-op unless the optional `openbb` extra is installed; self-reports either way.
 from src.openbb_bridge import try_register_openbb_routes  # noqa: E402  # OPENBB-WORKSPACE-INTEGRATION

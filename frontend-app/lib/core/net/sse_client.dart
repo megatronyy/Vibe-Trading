@@ -94,6 +94,10 @@ class SseClient {
       options: Options(
         responseType: ResponseType.stream,
         headers: headers,
+        // SSE streams are long-lived — disable dio's receive timeout so it
+        // doesn't kill the connection during quiet periods (heartbeats arrive
+        // every ~30s but backtests/swarm can run for minutes without output).
+        receiveTimeout: Duration.zero,
         // We inspect the status ourselves so a 401 surfaces cleanly.
         validateStatus: (_) => true,
       ),

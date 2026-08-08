@@ -115,7 +115,7 @@ class SessionStore:
         shutil.rmtree(session_dir, ignore_errors=True)
         return True
 
-    def list_sessions(self, limit: int = 50) -> List[Session]:
+    def list_sessions(self, limit: int = 50, owner_id: str | None = None) -> List[Session]:
         """List all sessions in descending update-time order.
 
         Args:
@@ -135,7 +135,17 @@ class SessionStore:
             if not isinstance(data, dict):
                 continue
             try:
-                sessions.append(Session.from_dict(data))
+                sess = Session.from_dict(data)
+                # Owner filter: when owner_id is provided, skip sessions owned
+                # by other users. Sessions with no owner (legacy) are visible
+                # to all (backward compat).
+                if owner_id and owner_id != "_legacy":
+                    sess_owner = data.get("owner_id", "")
+                    if not sess_owner or sess_owner == "_legacy":
+                        pass  # Legacy session — visible to all
+                    elif sess_owner != owner_id:
+                        continue  # Owned by another user — skip
+                sessions.append(sess)
             except (TypeError, ValueError, KeyError) as exc:
                 # One bad session.json must not abort listing siblings.
                 logger.warning(

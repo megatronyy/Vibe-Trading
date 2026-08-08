@@ -1,6 +1,7 @@
 import { Suspense, lazy, type ComponentType } from "react";
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import { Layout } from "@/components/layout/Layout";
+import { isLoggedIn } from "@/lib/apiAuth";
 
 const Home = lazy(() => import("@/pages/Home").then((m) => ({ default: m.Home })));
 const Agent = lazy(() => import("@/pages/Agent").then((m) => ({ default: m.Agent })));
@@ -28,6 +29,12 @@ const Correlation = lazy(() =>
 const AlphaZoo = lazy(() =>
   import("@/pages/AlphaZoo").then((m) => ({ default: m.AlphaZoo })),
 );
+const Login = lazy(() => import("@/pages/Login"));
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  if (!isLoggedIn()) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
 
 function PageLoader() {
   return (
@@ -46,23 +53,24 @@ function wrap(Component: ComponentType) {
 }
 
 export const router = createBrowserRouter([
+  { path: "/login", element: <Suspense fallback={<PageLoader />}><Login /></Suspense> },
   {
     element: <Layout />,
     children: [
-      { path: "/", element: wrap(Agent) },
+      { path: "/", element: <RequireAuth>{wrap(Agent)}</RequireAuth> },
       { path: "/about", element: wrap(Home) },
-      { path: "/agent", element: wrap(Agent) },
-      { path: "/runtime", element: wrap(Runtime) },
-      { path: "/scheduled", element: wrap(Scheduled) },
-      { path: "/reports", element: wrap(Reports) },
-      { path: "/settings", element: wrap(Settings) },
-      { path: "/runs/:runId", element: wrap(RunDetail) },
-      { path: "/compare", element: wrap(Compare) },
-      { path: "/correlation", element: wrap(Correlation) },
-      { path: "/alpha-zoo", element: wrap(AlphaZoo) },
-      { path: "/alpha-zoo/bench", element: wrap(AlphaZoo) },
-      { path: "/alpha-zoo/compare", element: wrap(AlphaZoo) },
-      { path: "/alpha-zoo/:alphaId", element: wrap(AlphaZoo) },
+      { path: "/agent", element: <RequireAuth>{wrap(Agent)}</RequireAuth> },
+      { path: "/runtime", element: <RequireAuth>{wrap(Runtime)}</RequireAuth> },
+      { path: "/scheduled", element: <RequireAuth>{wrap(Scheduled)}</RequireAuth> },
+      { path: "/reports", element: <RequireAuth>{wrap(Reports)}</RequireAuth> },
+      { path: "/settings", element: <RequireAuth>{wrap(Settings)}</RequireAuth> },
+      { path: "/runs/:runId", element: <RequireAuth>{wrap(RunDetail)}</RequireAuth> },
+      { path: "/compare", element: <RequireAuth>{wrap(Compare)}</RequireAuth> },
+      { path: "/correlation", element: <RequireAuth>{wrap(Correlation)}</RequireAuth> },
+      { path: "/alpha-zoo", element: <RequireAuth>{wrap(AlphaZoo)}</RequireAuth> },
+      { path: "/alpha-zoo/bench", element: <RequireAuth>{wrap(AlphaZoo)}</RequireAuth> },
+      { path: "/alpha-zoo/compare", element: <RequireAuth>{wrap(AlphaZoo)}</RequireAuth> },
+      { path: "/alpha-zoo/:alphaId", element: <RequireAuth>{wrap(AlphaZoo)}</RequireAuth> },
     ],
   },
 ]);

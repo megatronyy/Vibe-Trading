@@ -362,11 +362,18 @@ def register_sessions_routes(app: FastAPI) -> None:
         )
 
     @app.get("/sessions", response_model=List[SessionResponse], dependencies=[Depends(require_auth)])
-    async def list_sessions(limit: int = Query(50, ge=1, le=200)):
-        """List sessions."""
+    async def list_sessions(request: Request, limit: int = Query(50, ge=1, le=200)):
+        """List sessions (filtered by caller ownership when user isolation is active)."""
         svc = _host_get_session_service()
         if not svc:
             raise HTTPException(status_code=501, detail="Session runtime not enabled")
+        try:
+            from src.auth.dependency import get_current_principal
+            principal = get_current_principal(request)
+            owner_id = principal.effective_owner_id
+        except Exception:
+            owner_id = None
+        sessions = svc.list_sessions(limit=limit, owner_id=owner_id)
         sessions = svc.list_sessions(limit=limit)
         return [
             SessionResponse(

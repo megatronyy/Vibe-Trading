@@ -172,6 +172,7 @@ mochat = [
 msteams = [
     "cryptography>=42.0.0",
     "PyJWT[crypto]>=2.8.0",
+    "bcrypt>=4.0.0",
 ]
 napcat = [
     "aiohttp>=3.9.0",
@@ -209,6 +210,7 @@ channels = [
     "neonize>=0.3.18.post0",
     "nh3>=0.2.18",
     "PyJWT[crypto]>=2.8.0",
+    "bcrypt>=4.0.0",
     "python-socketio[asyncio_client]>=5.11.0",
     "python-telegram-bot>=21.0",
     "qrcode>=7.4.2",

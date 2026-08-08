@@ -6,6 +6,10 @@
 /// - [baseUrlKey]  — self-hosted backend base URL
 /// - [themeKey]    — persisted theme mode (light/dark/system)
 /// - [localeKey]   — persisted language code
+/// - [jwtKey]      — JWT access token (P1 auth)
+/// - [jwtExpKey]   — JWT expiry (ISO-8601)
+/// - [userIdKey]   — authenticated user id
+/// - [userNameKey] — authenticated display name
 library;
 
 import 'package:flutter/foundation.dart';
@@ -23,6 +27,10 @@ class SecureStore {
   static const String baseUrlKey = 'base_url';
   static const String themeKey = 'theme_mode';
   static const String localeKey = 'locale';
+  static const String jwtKey = 'jwt';
+  static const String jwtExpKey = 'jwt_exp';
+  static const String userIdKey = 'user_id';
+  static const String userNameKey = 'user_name';
 
   Future<String?> getApiKey() => _storage.read(key: apiKeyKey);
   Future<void> setApiKey(String? value) => _writeOrDelete(apiKeyKey, value);
@@ -35,6 +43,29 @@ class SecureStore {
 
   Future<String?> getLocale() => _storage.read(key: localeKey);
   Future<void> setLocale(String? value) => _writeOrDelete(localeKey, value);
+
+  // --- P1 auth: JWT + user identity ---------------------------------------
+  Future<String?> getJwt() => _storage.read(key: jwtKey);
+  Future<void> setJwt(String? value) => _writeOrDelete(jwtKey, value);
+
+  Future<String?> getJwtExp() => _storage.read(key: jwtExpKey);
+  Future<void> setJwtExp(String? value) => _writeOrDelete(jwtExpKey, value);
+
+  Future<String?> getUserId() => _storage.read(key: userIdKey);
+  Future<void> setUserId(String? value) => _writeOrDelete(userIdKey, value);
+
+  Future<String?> getUserName() => _storage.read(key: userNameKey);
+  Future<void> setUserName(String? value) => _writeOrDelete(userNameKey, value);
+
+  /// Wipe just the auth keys (logout). Connection / theme / locale survive.
+  Future<void> clearAuth() async {
+    await Future.wait([
+      _storage.delete(key: jwtKey),
+      _storage.delete(key: jwtExpKey),
+      _storage.delete(key: userIdKey),
+      _storage.delete(key: userNameKey),
+    ]);
+  }
 
   Future<void> _writeOrDelete(String key, String? value) async {
     if (value == null || value.isEmpty) {

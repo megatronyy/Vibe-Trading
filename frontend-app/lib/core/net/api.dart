@@ -22,6 +22,24 @@ class Api {
   Future<HealthStatus> getHealth() async =>
       HealthStatus.fromJson(await _object('/health'));
 
+  // --- auth (P1) ---
+  /// POST /auth/login → {jwt, expires_at, user:{user_id, username, role}}.
+  Future<Map<String, dynamic>> login(String username, String password) async =>
+      _post('/auth/login', {'username': username, 'password': password});
+
+  /// POST /auth/register → same response shape as [login].
+  Future<Map<String, dynamic>> register(
+          String username, String password) async =>
+      _post('/auth/register', {'username': username, 'password': password});
+
+  /// GET /auth/me → {user_id, username, role}.
+  Future<Map<String, dynamic>> authMe() async => _object('/auth/me');
+
+  /// POST /auth/refresh → same response shape as [login]. Requires a valid
+  /// (non-expired) JWT in the Authorization header, injected by the dio
+  /// interceptor from the in-memory `currentJwt` holder.
+  Future<Map<String, dynamic>> refreshAuth() async => _post('/auth/refresh', {});
+
   // --- sessions / messages ---
   Future<List<SessionItem>> listSessions() async =>
       (await _data('/sessions') as List)

@@ -97,12 +97,9 @@ class AgentNotifier extends Notifier<AgentState> {
   Timer? _liveTimer;
   // Live tool progress, keyed by tool name within the current attempt.
   final Map<String, ToolCallEntry> _liveTools = {};
-  // Streaming safety timeout (React parity): if no SSE event arrives for this
-  // long while streaming, force idle + surface a timeout error. Default 90s,
-  // overridden by `sse_timeout_seconds` from /settings/llm.
-  Timer? _timeoutTimer;
-  int _sseTimeoutMs = 90000;
-  bool _sseTimeoutLoaded = false;
+  // Streaming timeout removed: sessions may run for a long time on the backend
+  // (backtests, swarm). The streaming indicator stays visible until
+  // attempt.completed/failed arrives.
   // Dedup flag: attempt.completed and message.received both can deliver the
   // final answer — whichever fires first wins.
   bool _answerFinalized = false;
@@ -193,7 +190,6 @@ class AgentNotifier extends Notifier<AgentState> {
   /// stream. No network call, so it lands on the examples page immediately.
   void resetToWelcome() {
     _disposeStream();
-    _cancelTimeout();
     _liveTools.clear();
     state = AgentState(
       sessions: state.sessions,
@@ -234,7 +230,6 @@ class AgentNotifier extends Notifier<AgentState> {
       reasoningActive: false,
       clearError: true,
     );
-    _armTimeout();
     try {
       await _api.sendMessage(sid, text);
       // Auto-title the session (LLM generates a title from the first message).
@@ -311,49 +306,10 @@ class AgentNotifier extends Notifier<AgentState> {
   /// Dismiss a pending mandate without committing.
   void dismissMandate() => state = state.copyWith(clearMandate: true);
 
-  // --- streaming safety timeout (React parity) --------------------------
-
-  void _armTimeout() {
-    if (!state.streaming) return;
-    _timeoutTimer?.cancel();
-    _timeoutTimer = Timer(Duration(milliseconds: _sseTimeoutMs), _onStreamTimeout);
-  }
-
-  void _cancelTimeout() {
-    _timeoutTimer?.cancel();
-    _timeoutTimer = null;
-  }
-
-  void _onStreamTimeout() {
-    if (!state.streaming) return;
-    // Clear all live tool progress so spinners stop.
-    _liveTools.clear();
-    _flushLiveTools();
-    state = state.copyWith(
-      streaming: false,
-      reasoningActive: false,
-      streamingText: '',
-      error: '执行超时（${(_sseTimeoutMs / 1000).round()}s 无 SSE 事件）'
-          '— run_swarm 等长任务可能仍在后端运行，可在 Runtime 页查看状态。',
-    );
-  }
-
-  Future<void> _loadSseTimeout() async {
-    try {
-      final s = await _api.getLLMSettings();
-      final secs = s['sse_timeout_seconds'];
-      if (secs is num && secs > 0) _sseTimeoutMs = (secs * 1000).toInt();
-    } catch (_) {}
-  }
-
   // --- SSE subscription + dispatch ---------------------------------------
 
   void _subscribe(String sid) {
     _disposeStream();
-    if (!_sseTimeoutLoaded) {
-      _sseTimeoutLoaded = true;
-      _loadSseTimeout();
-    }
     final url = _api.sessionEventsUrl(sid, replayActive: true);
     _sse = SseClient(dio: _dio, url: url);
     _sub = _sse!.connect().listen(_dispatch, onError: (Object e) {
@@ -367,7 +323,6 @@ class AgentNotifier extends Notifier<AgentState> {
       state = state.copyWith(sseStatus: SseStatus.connected);
     }
     // Any event resets the streaming safety timeout (React parity).
-    if (state.streaming) _armTimeout();
     final d = ev.json ?? <String, dynamic>{};
     switch (ev.type) {
       case 'text_delta':
@@ -587,7 +542,6 @@ class AgentNotifier extends Notifier<AgentState> {
     String? error,
     String? runDir,
   }) {
-    _cancelTimeout();
     // On success, finalize the streamed text (or the summary) as the assistant
     // answer — React parity: attempt.completed itself adds the final answer.
     if (ok && !_answerFinalized) {
@@ -633,7 +587,6 @@ class AgentNotifier extends Notifier<AgentState> {
       content: content,
       timestamp: DateTime.now().millisecondsSinceEpoch,
     ));
-    _cancelTimeout();
     state = state.copyWith(streamingText: '', streaming: false);
   }
 
@@ -775,7 +728,6 @@ class AgentNotifier extends Notifier<AgentState> {
 
   void _dispose() {
     _disposeStream();
-    _cancelTimeout();
     _liveTimer?.cancel();
     _liveTimer = null;
     _liveToolsController.close();

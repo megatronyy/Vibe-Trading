@@ -121,6 +121,26 @@ function appendQueryParam(url: string, key: string, value: string): string {
 }
 
 export const api = {
+  // --- Auth (JWT login / register / me) ---
+  login: async (username: string, password: string) => {
+    const res = await fetch(`${BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) throw await errorFromResponse(res);
+    return res.json() as Promise<{ jwt: string; expires_at: string; user: { user_id: string; username: string; role: string } }>;
+  },
+  register: async (username: string, password: string) => {
+    const res = await fetch(`${BASE}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) throw await errorFromResponse(res);
+    return res.json() as Promise<{ jwt: string; expires_at: string; user: { user_id: string; username: string; role: string } }>;
+  },
+
   uploadFile,
   getCorrelation: (codes: string, days: number, method: "pearson" | "spearman") =>
     request<CorrelationResponse>(

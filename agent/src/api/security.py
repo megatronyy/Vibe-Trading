@@ -458,9 +458,21 @@ def _validate_api_auth(
     api_key = _configured_api_key()
     if api_key:
         token = _auth_credential_from_header_or_query(cred, query_api_key, allow_query=allow_query)
-        if not token or not hmac.compare_digest(token, api_key):
+        if not token:
             raise HTTPException(status_code=401, detail="Invalid or missing API key")
-        return Principal(subject=SHARED_KEY_SUBJECT, auth_method=AuthMethod.SHARED_KEY)
+        # 1. Check against the configured API key (legacy single-tenant).
+        if hmac.compare_digest(token, api_key):
+            return Principal(subject=SHARED_KEY_SUBJECT, auth_method=AuthMethod.SHARED_KEY)
+        # 2. Check as a JWT (multi-user auth). If valid, accept it.
+        try:
+            from src.auth.tokens import verify_token
+            claims = verify_token(token)
+            if claims:
+                return Principal(subject=claims.get("username", "jwt-user"), auth_method=AuthMethod.SHARED_KEY)
+        except Exception:
+            pass
+        # 3. Neither API key nor valid JWT.
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
     if _is_local_client(request):
         return Principal(subject=LOOPBACK_SUBJECT, auth_method=AuthMethod.LOOPBACK_TRUST)
@@ -574,8 +586,18 @@ async def require_event_stream_auth(
     api_key = _configured_api_key()
     if api_key:
         token = cred.credentials if (cred and cred.credentials) else ""
+        # 1. API key match (legacy).
         if token and hmac.compare_digest(token, api_key):
             return
+        # 2. JWT match (multi-user auth).
+        if token:
+            try:
+                from src.auth.tokens import verify_token
+                if verify_token(token):
+                    return
+            except Exception:
+                pass
+        # 3. SSE ticket (browser EventSource).
         if ticket and _consume_sse_ticket(ticket):
             return
         raise HTTPException(status_code=401, detail="Invalid or missing API key")

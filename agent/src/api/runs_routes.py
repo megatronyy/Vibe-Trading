@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 
 
@@ -47,6 +48,25 @@ def _load_csv_to_dict(path: Path, limit: Optional[int] = None) -> List[Dict[str,
 def _run_response_payload(response: Any) -> Dict[str, Any]:
     """Return a JSON-ready payload for opt-in run response variants."""
     return response.model_dump(mode="json")
+
+
+def _run_owner_id(run_dir: Path) -> str:
+    """Read owner_id from the run's state.json (or req.json). Returns '' if not set."""
+    for fname in ("state.json", "req.json"):
+        fpath = run_dir / fname
+        data = _load_json_file(fpath)
+        if data and data.get("owner_id"):
+            return str(data["owner_id"])
+    return ""
+
+
+def _check_run_ownership(run_dir: Path, owner_id: str) -> bool:
+    """True if the run belongs to [owner_id] (or has no owner = legacy/shared)."""
+    run_owner = _run_owner_id(run_dir)
+    # No owner set → legacy run, visible to all (backward compat).
+    if not run_owner or run_owner == "_legacy":
+        return True
+    return run_owner == owner_id
 
 
 def _build_response_from_run_dir(
@@ -302,11 +322,9 @@ def register_runs_routes(
     @app.get("/runs/{run_id}", response_model=RunResponse, dependencies=[Depends(require_auth)])
     async def get_run_result(
         run_id: str,
-        chart_symbol: Optional[str] = Query(None, description="Opt in to chart payloads for a single symbol"),
-        chart_payload: Optional[str] = Query(
-            None,
-            description="Optional chart payload mode. Use 'summary' to omit chart rows and trade markers.",
-        ),
+        request: Request,
+        chart_symbol: Optional[str] = Query(None),
+        chart_payload: Optional[str] = Query(None),
     ):
         """Fetch details for a historical run by ``run_id``.
 
@@ -323,6 +341,22 @@ def register_runs_routes(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Run {run_id} not found"
             )
+
+        # Ownership check.
+        try:
+            from src.auth.dependency import get_current_principal
+            principal = get_current_principal(request)
+            owner_id = principal.effective_owner_id
+            if owner_id and owner_id != "_legacy":
+                if not _check_run_ownership(run_dir, owner_id):
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Run {run_id} not found"
+                    )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # Best-effort; don't block on auth errors.
 
         wants_chart_meta = bool(chart_payload or chart_symbol)
         chart_symbols: List[str] = []
@@ -343,7 +377,7 @@ def register_runs_routes(
         return response
 
     @app.get("/runs", response_model=List[RunInfo], dependencies=[Depends(require_auth)])
-    async def list_runs(limit: int = 20):
+    async def list_runs(request: Request, limit: int = 20):
         """List recent runs with summary fields."""
         from src.ui_services import load_run_context
 
@@ -353,6 +387,14 @@ def register_runs_routes(
         if not runs_dir.exists():
             return []
 
+        # Resolve caller for ownership filtering.
+        try:
+            from src.auth.dependency import get_current_principal
+            principal = get_current_principal(request)
+            owner_id = principal.effective_owner_id
+        except Exception:
+            owner_id = ""
+
         run_dirs = sorted(
             [d for d in runs_dir.iterdir() if d.is_dir()],
             key=lambda x: x.name,
@@ -360,7 +402,13 @@ def register_runs_routes(
         )
 
         results = []
-        for d in run_dirs[:limit]:
+        for d in run_dirs:
+            # Ownership filter: skip runs owned by other users.
+            if owner_id and owner_id != "_legacy":
+                if not _check_run_ownership(d, owner_id):
+                    continue
+            if len(results) >= limit:
+                break
             run_id = d.name
 
             # Status from state.json or artifacts

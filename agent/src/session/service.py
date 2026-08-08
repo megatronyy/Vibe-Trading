@@ -146,9 +146,9 @@ class SessionService:
         """Return a session by ID."""
         return self.store.get_session(session_id)
 
-    def list_sessions(self, limit: int = 50) -> list[Session]:
-        """List all sessions."""
-        return self.store.list_sessions(limit)
+    def list_sessions(self, limit: int = 50, owner_id: str | None = None) -> list[Session]:
+        """List sessions, optionally filtered by owner_id."""
+        return self.store.list_sessions(limit, owner_id=owner_id)
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a session."""

@@ -1,11 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/state/auth_provider.dart';
 import '../features/agent/agent_page.dart';
 import '../features/alpha/alpha_bench_page.dart';
 import '../features/alpha/alpha_compare_page.dart';
 import '../features/alpha/alpha_detail_page.dart';
 import '../features/alpha/alpha_page.dart';
+import '../features/auth/login_page.dart';
 import '../features/compare/compare_page.dart';
 import '../features/correlation/correlation_page.dart';
 import '../features/more/more_page.dart';
@@ -21,10 +23,25 @@ import '../features/shell/shell_page.dart';
 /// primary tabs preserve their own state; secondary destinations
 /// (RunDetail/Compare/Correlation/Runtime) are pushed full-screen above the
 /// shell. Mirrors the React routes in `frontend/src/router.tsx`.
+///
+/// P1 auth: a top-level `redirect` gates every route on [authProvider]. While
+/// `isAnonymous` (storage load pending) the redirect is a no-op; once decided,
+/// logged-out users are forced to `/login` and logged-in users on `/login` are
+/// bounced to `/agent`. Listening to [authProvider] and calling
+/// [GoRouter.refresh] makes login/logout move the user instantly.
 final routerProvider = Provider<GoRouter>((ref) {
-  return GoRouter(
+  final router = GoRouter(
     initialLocation: '/agent',
+    redirect: (context, state) {
+      final auth = ref.read(authProvider);
+      if (auth.isAnonymous) return null; // still loading — don't decide yet
+      final loc = state.matchedLocation;
+      if (!auth.isLoggedIn && loc != '/login') return '/login';
+      if (auth.isLoggedIn && loc == '/login') return '/agent';
+      return null;
+    },
     routes: [
+      GoRoute(path: '/login', builder: (_, _) => const LoginPage()),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
             ShellPage(navigationShell: navigationShell),
@@ -66,4 +83,9 @@ final routerProvider = Provider<GoRouter>((ref) {
               AlphaDetailPage(alphaId: state.pathParameters['alphaId']!)),
     ],
   );
+  // Re-evaluate the redirect whenever auth state changes (login / logout /
+  // cold-start load). Without this the user would stay on the current screen
+  // until the next manual navigation.
+  ref.listen(authProvider, (_, _) => router.refresh());
+  return router;
 });
