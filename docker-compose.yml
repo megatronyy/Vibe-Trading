@@ -2,7 +2,7 @@ services:
   vibe-trading:
     build: .
     ports:
-      - "127.0.0.1:8899:8899"
+      - "0.0.0.0:8899:8899"
     env_file:
       - agent/.env
     environment:
@@ -69,7 +69,7 @@ services:
     image: node:22@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c32f3c7b4c4a31957e37  # node:22 digest resolved 2026-07-28
     working_dir: /app
     ports:
-      - "127.0.0.1:5899:5899"
+      - "0.0.0.0:5899:5899"
     volumes:
       - ./frontend:/app
     environment:

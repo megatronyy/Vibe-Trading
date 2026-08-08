@@ -160,8 +160,38 @@ def test_unknown_owner_and_unattributable_owner_are_different_states():
     assert unattributable.owner.attributable is False
 
 
-# --- the auth surface returns one ---
+def test_a_backfilled_session_with_owner_id_loads():
+    # The auth migration writes a flat ``owner_id`` into every session.json.
+    # ``Session.from_dict`` must absorb it rather than raise TypeError --
+    # this is the regression for the get_session / session_events 500s.
+    backfilled = {
+        "session_id": "abc123",
+        "title": "migrated",
+        "status": "active",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "last_attempt_id": None,
+        "config": {},
+        "owner_id": "user-42",
+    }
+    session = Session.from_dict(backfilled)
+    assert session.session_id == "abc123"
+    assert session.owner_id == "user-42"
+    assert session.owner is None
 
+
+def test_owner_id_round_trips_and_survives_rewrite():
+    # owner_id must be emitted by to_dict, otherwise update_session would
+    # silently drop the backfilled owner on the next write.
+    session = Session(title="owned-row", owner_id="user-7")
+    restored = Session.from_dict(session.to_dict())
+    assert restored.owner_id == "user-7"
+    # A second round-trip simulates a read -> update_session -> read cycle.
+    reread = Session.from_dict(restored.to_dict())
+    assert reread.owner_id == "user-7"
+
+
+# --- the auth surface returns one ---
 
 def test_validate_api_auth_returns_a_shared_key_principal(monkeypatch):
     from src.api import security

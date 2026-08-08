@@ -153,6 +153,16 @@ class Session:
             before principals existed or by a path that has no request context.
             None means "unknown owner", which is different from an
             unattributable one -- do not collapse the two.
+        owner_id: Tenant-scope key (a user id) used by the auth layer to
+            isolate sessions per user. Distinct from ``owner``: ``owner`` is
+            the audit principal recording HOW a session was authorised;
+            ``owner_id`` is the data-scope key recording WHO owns the row for
+            filtering. The migration backfill and
+            :meth:`SessionStore.list_sessions` read/write this key directly in
+            ``session.json``, so the model must carry and round-trip it -- a
+            session deserialised with a stray ``owner_id`` used to raise
+            ``TypeError`` from ``__init__``, and ``to_dict`` would otherwise
+            drop it on the next write.
     """
 
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -163,6 +173,7 @@ class Session:
     last_attempt_id: Optional[str] = None
     config: Dict[str, Any] = field(default_factory=dict)
     owner: Optional[Principal] = None
+    owner_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the session to a dictionary.
