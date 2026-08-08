@@ -1,0 +1,12 @@
+{
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "app_id": "cli_a9232968eff8dcca",
+      "app_secret": "***REMOVED***",
+      "domain": "feishu",
+      "group_policy": "open",
+      "allow_from": ["*"]
+    }
+  }
+}
