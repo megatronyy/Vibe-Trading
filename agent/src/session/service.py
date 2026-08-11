@@ -120,6 +120,7 @@ class SessionService:
         title: str = "",
         config: Optional[Dict[str, Any]] = None,
         owner: Optional["Principal"] = None,
+        owner_id: Optional[str] = None,
     ) -> Session:
         """Create a new session.
 
@@ -132,11 +133,17 @@ class SessionService:
                 ``None``, which reads as "owner unknown" and is deliberately
                 distinct from a principal that authenticated but cannot be
                 attributed to a person (see ``Principal.attributable``).
+            owner_id: The data-scope key (``Principal.effective_owner_id``) used
+                by ``list_sessions`` to filter. A logged-in user's session is
+                stamped with their ``user_id`` so it is visible only to them;
+                loopback/anonymous creation gets ``"_legacy"`` (visible to all).
+                When ``None`` the session stays in the legacy "visible to all"
+                pool for backward compatibility.
 
         Returns:
             The newly created Session.
         """
-        session = Session(title=title, config=config or {}, owner=owner)
+        session = Session(title=title, config=config or {}, owner=owner, owner_id=owner_id)
         self.store.create_session(session)
         self._search_index.index_session(session.session_id, title)
         self.event_bus.emit(session.session_id, "session.created", {"session_id": session.session_id, "title": title})

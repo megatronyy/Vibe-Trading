@@ -2933,11 +2933,117 @@ def _live_api_base() -> str:
     return get_env_config().api.vibe_trading_api_url.rstrip("/")
 
 
+def _cli_token_path() -> Path:
+    """Path to the CLI's stored login token (~/.vibe-trading/cli_token.json)."""
+    return Path.home() / ".vibe-trading" / "cli_token.json"
+
+
+def _load_cli_jwt() -> str:
+    """Return the stored CLI JWT if present and unexpired, else ``""``."""
+    try:
+        data = json.loads(_cli_token_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    expires_at = data.get("expires_at")
+    if expires_at:
+        try:
+            from datetime import datetime, timezone
+
+            exp = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) >= exp:
+                return ""
+        except ValueError:
+            return ""
+    return data.get("jwt") or ""
+
+
+def _save_cli_jwt(payload: Dict[str, Any]) -> None:
+    """Persist the login token (0600 where the filesystem supports it)."""
+    path = _cli_token_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass  # Windows has no POSIX chmod
+
+
+def _clear_cli_jwt() -> None:
+    """Remove the stored CLI login token, if any."""
+    try:
+        _cli_token_path().unlink()
+    except FileNotFoundError:
+        pass
+
+
 def _api_auth_headers() -> Dict[str, str]:
-    """Return Bearer auth headers for CLI-to-API control calls."""
-    reset_env_config()  # ensure fresh read of auth credentials
-    key = get_env_config().api.api_auth_key.strip()
-    return {"Authorization": f"Bearer {key}"} if key else {}
+    """Return auth headers for CLI-to-API control calls.
+
+    Prefers a JWT stored by ``vibe-trading login``; without one, local
+    control-plane calls rely on loopback trust and send no bearer.
+    """
+    reset_env_config()  # ensure fresh read of any config the caller depends on
+    jwt = _load_cli_jwt()
+    return {"Authorization": f"Bearer {jwt}"} if jwt else {}
+
+
+def cmd_login(args) -> int:
+    """Authenticate against the API server and store a JWT for CLI control calls."""
+    import getpass
+
+    import httpx
+
+    reset_env_config()
+    base = get_env_config().api.vibe_trading_api_url.rstrip("/")
+    username = (args.username or "").strip() or input("Username: ").strip()
+    if not username:
+        console.print("[red]Username is required.[/red]")
+        return EXIT_USAGE_ERROR
+    password = args.password if args.password else getpass.getpass("Password: ")
+    if not password:
+        console.print("[red]Password is required.[/red]")
+        return EXIT_USAGE_ERROR
+    try:
+        response = httpx.post(
+            f"{base}/auth/login",
+            json={"username": username, "password": password},
+            timeout=30.0,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface a clean error to the user
+        console.print(f"[red]Could not reach the API at {base}: {exc}[/red]")
+        return EXIT_RUN_FAILED
+    if response.status_code == 401:
+        console.print("[red]Invalid username or password.[/red]")
+        return EXIT_USAGE_ERROR
+    if response.status_code != 200:
+        console.print(f"[red]Login failed (HTTP {response.status_code}).[/red]")
+        return EXIT_RUN_FAILED
+    data = response.json()
+    jwt = data.get("jwt")
+    if not jwt:
+        console.print("[red]Login response missing JWT.[/red]")
+        return EXIT_RUN_FAILED
+    _save_cli_jwt(
+        {
+            "jwt": jwt,
+            "username": (data.get("user") or {}).get("username", username),
+            "expires_at": data.get("expires_at", ""),
+        }
+    )
+    console.print(
+        f"[green]Logged in as {username}.[/green] Token stored at {_cli_token_path()}"
+    )
+    console.print("Control calls (live / channels / mandate) now authenticate with this JWT.")
+    return EXIT_SUCCESS
+
+
+def cmd_logout() -> int:
+    """Clear the stored CLI login token."""
+    _clear_cli_jwt()
+    console.print("[green]Logged out (CLI token cleared).[/green]")
+    return EXIT_SUCCESS
 
 
 def _live_api_call(
@@ -4716,6 +4822,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("init", help="Interactive setup: create ~/.vibe-trading/.env")
 
+    login_parser = subparsers.add_parser(
+        "login", help="Authenticate with the API server (stores a JWT for control calls)"
+    )
+    login_parser.add_argument("--username", default=None, help="Username (prompted if omitted)")
+    login_parser.add_argument("--password", default=None, help="Password (prompted if omitted)")
+    subparsers.add_parser("logout", help="Clear the stored CLI login token")
+
     # Cross-platform frontend setup. See cmd_setup() for details.
     setup_parser = subparsers.add_parser(
         "setup",
@@ -5700,6 +5813,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return cmd_init()
+    if args.command == "login":
+        return cmd_login(args)
+    if args.command == "logout":
+        return cmd_logout()
     if args.command == "setup":
         return _coerce_exit_code(
             cmd_setup(frontend_dir=Path(args.frontend_dir))

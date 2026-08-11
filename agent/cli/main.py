@@ -1056,8 +1056,9 @@ def _commit_mandate(proposal: Dict[str, Any], selected_ordinal: int) -> Dict[str
     reset_env_config()
     api_config = get_env_config().api
     base = api_config.vibe_trading_api_url.rstrip("/")
-    key = api_config.api_auth_key.strip()
-    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    # JWT-only API auth: the CLI sends no static key (local control-plane calls
+    # rely on loopback trust). A future `vibe-trading login` may add a JWT here.
+    headers = {}
     try:
         account = proposal.get("account") or {}
         body = CommitMandateRequest.model_validate(

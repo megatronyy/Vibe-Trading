@@ -146,9 +146,10 @@ class TestRunnerDispatch:
 
 
 class TestRunnerControlEndpoints:
-    def test_live_status_request_sends_configured_bearer_token(
+    def test_live_status_request_sends_no_static_key(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """JWT-only API auth: the CLI sends no bearer (loopback trust on the server)."""
         from cli._legacy import _live_api_call
 
         captured: Dict[str, Any] = {}
@@ -163,7 +164,7 @@ class TestRunnerControlEndpoints:
             assert _live_api_call("GET", "/live/status") == {"status": "ok"}
 
         assert captured["url"].endswith("/live/status")
-        assert captured["headers"] == {"Authorization": "Bearer live-secret"}
+        assert captured["headers"] == {}
 
     def test_start_posts_to_runner_start(self) -> None:
         from cli._legacy import EXIT_SUCCESS, cmd_live_start

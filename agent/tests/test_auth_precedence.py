@@ -1,15 +1,14 @@
-"""GHSA-7wgj regression: API auth must check the configured key BEFORE trusting a loopback peer.
+"""API auth contract: JWT is the only bearer credential; loopback dev-trust is preserved.
 
-The bug: ``_validate_api_auth`` / ``require_event_stream_auth`` returned early on
-``_is_local_client(request)`` *before* reading the configured API key, so a
-loopback (or same-host reverse-proxy) peer was admitted with no credential even
-when ``API_AUTH_KEY`` was set. The fix inverts to key-first precedence: when a
-key is configured every peer -- loopback included -- must present a valid
-credential; only in keyless dev mode does loopback trust apply.
+The API server no longer accepts ``API_AUTH_KEY`` as a bearer credential --
+JWT is the only accepted token. A request with no token is admitted only from a
+loopback peer (dev mode); a non-loopback peer without a valid JWT is rejected.
+This file pins that contract on both ``require_auth`` and the event-stream
+dependency.
 
 A default FastAPI ``TestClient`` reports its peer host as ``testclient``, which
-``_is_local_client`` treats as loopback -- exactly the condition that reproduced
-the bug.
+``_is_local_client`` treats as loopback. ``TestClient(..., client=("203.0.113.10", ...))``
+simulates a non-loopback caller.
 """
 
 from __future__ import annotations
@@ -25,6 +24,11 @@ def _loopback_client() -> TestClient:
     return TestClient(api_server.app)
 
 
+def _remote_client() -> TestClient:
+    """TestClient that simulates a non-loopback caller."""
+    return TestClient(api_server.app, client=("203.0.113.10", 50000))
+
+
 @pytest.fixture(autouse=True)
 def clear_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Start every test from dev-mode auth (no configured key)."""
@@ -34,108 +38,109 @@ def clear_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(api_server, "_API_KEY", "")
 
 
-def _set_key(monkeypatch: pytest.MonkeyPatch, key: str = "secret") -> None:
-    monkeypatch.setenv("API_AUTH_KEY", key)
-    monkeypatch.setattr(api_server, "_API_KEY", key)
-
-
-# (a) Key configured + NO credential on a require_auth route -> rejected, even for a loopback peer.
-def test_loopback_without_credential_rejected_when_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_key(monkeypatch)
-
+# (a) Loopback + no credential -> allowed (dev mode unchanged).
+def test_loopback_allowed_in_dev_mode_without_token() -> None:
     response = _loopback_client().get("/runs")
 
-    # The vulnerability would return 200 here; key-first precedence rejects it.
-    assert response.status_code in {401, 403}
-    assert response.status_code != 200
+    assert response.status_code == 200
 
 
-# (b) Key configured + valid bearer -> allowed.
-def test_loopback_with_valid_bearer_allowed_when_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_key(monkeypatch)
-
+# (b) Loopback + valid JWT -> allowed.
+def test_loopback_with_valid_jwt_allowed(make_jwt) -> None:
     response = _loopback_client().get(
-        "/runs", headers={"Authorization": "Bearer secret"}
+        "/runs", headers={"Authorization": f"Bearer {make_jwt()}"}
     )
 
     assert response.status_code == 200
 
 
-# (b') Key configured + WRONG bearer -> rejected.
-def test_loopback_with_invalid_bearer_rejected_when_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_key(monkeypatch)
-
+# (b') Loopback + invalid bearer -> rejected (token present but not a valid JWT).
+def test_loopback_with_invalid_bearer_rejected() -> None:
     response = _loopback_client().get(
-        "/runs", headers={"Authorization": "Bearer wrong"}
+        "/runs", headers={"Authorization": "Bearer not-a-jwt"}
     )
 
     assert response.status_code == 401
 
 
-# (c) No key (dev mode) + loopback peer -> allowed. Default local UX is unchanged.
-def test_loopback_allowed_in_dev_mode_without_key() -> None:
+# (c) A configured API_AUTH_KEY is no longer consulted: loopback stays trusted.
+def test_configured_api_key_does_not_gate_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("API_AUTH_KEY", "secret")
+    monkeypatch.setattr(api_server, "_API_KEY", "secret")
+
     response = _loopback_client().get("/runs")
+
+    # Loopback dev-trust applies regardless of API_AUTH_KEY now.
+    assert response.status_code == 200
+
+
+# (d) Remote + no credential -> rejected (403).
+def test_remote_without_token_rejected() -> None:
+    response = _remote_client().get("/runs")
+
+    assert response.status_code == 403
+
+
+# (e) Remote + valid JWT -> allowed.
+def test_remote_with_valid_jwt_allowed(make_jwt) -> None:
+    response = _remote_client().get(
+        "/runs", headers={"Authorization": f"Bearer {make_jwt()}"}
+    )
 
     assert response.status_code == 200
 
 
-# (d) Event-stream: valid single-use ticket still authenticates.
-def test_event_stream_accepts_valid_ticket_when_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_key(monkeypatch)
+# (e') Remote + invalid bearer -> rejected (401).
+def test_remote_with_invalid_bearer_rejected() -> None:
+    response = _remote_client().get(
+        "/runs", headers={"Authorization": "Bearer not-a-jwt"}
+    )
 
+    assert response.status_code == 401
+
+
+# --- Event stream ---------------------------------------------------------
+
+# (d) Event-stream: valid single-use ticket still authenticates (any peer).
+def test_event_stream_accepts_valid_ticket(make_jwt) -> None:
     ticket = api_server._mint_sse_ticket()
-    response = _loopback_client().get(f"/sessions/missing/events?ticket={ticket}")
+    response = _remote_client().get(f"/sessions/missing/events?ticket={ticket}")
 
     # Auth passed; the 404/501 comes from the missing session / disabled runtime,
     # not from the auth layer (a 401/403 would mean auth rejected the ticket).
     assert response.status_code in {404, 501}
 
 
-# (d) Event-stream: valid bearer still authenticates.
-def test_event_stream_accepts_valid_bearer_when_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_key(monkeypatch)
-
-    response = _loopback_client().get(
-        "/sessions/missing/events", headers={"Authorization": "Bearer secret"}
+# (d) Event-stream: valid JWT bearer still authenticates.
+def test_event_stream_accepts_valid_jwt(make_jwt) -> None:
+    response = _remote_client().get(
+        "/sessions/missing/events",
+        headers={"Authorization": f"Bearer {make_jwt()}"},
     )
 
     assert response.status_code in {404, 501}
 
 
-# (d) Event-stream: missing credential on a loopback peer -> rejected when key configured.
-def test_event_stream_without_credential_rejected_when_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_key(monkeypatch)
-
+# (d) Event-stream: loopback allowed without any credential (dev mode).
+def test_event_stream_allowed_in_dev_mode_without_token() -> None:
     response = _loopback_client().get("/sessions/missing/events")
+
+    assert response.status_code in {404, 501}
+
+
+# (d) Event-stream: an invalid bearer is rejected.
+def test_event_stream_rejects_invalid_bearer() -> None:
+    response = _remote_client().get(
+        "/sessions/missing/events", headers={"Authorization": "Bearer not-a-jwt"}
+    )
 
     assert response.status_code == 401
 
 
 # (d) Event-stream: an expired/invalid ticket is not accepted.
-def test_event_stream_rejects_invalid_ticket_when_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_key(monkeypatch)
-
-    response = _loopback_client().get("/sessions/missing/events?ticket=not-a-real-ticket")
+def test_event_stream_rejects_invalid_ticket() -> None:
+    response = _remote_client().get("/sessions/missing/events?ticket=not-a-real-ticket")
 
     assert response.status_code == 401
-
-
-# Event-stream dev mode: loopback allowed without any credential (unchanged UX).
-def test_event_stream_allowed_in_dev_mode_without_key() -> None:
-    response = _loopback_client().get("/sessions/missing/events")
-
-    assert response.status_code in {404, 501}

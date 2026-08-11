@@ -335,22 +335,28 @@ def register_sessions_routes(app: FastAPI) -> None:
     @app.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
     async def create_session(
         request: CreateSessionRequest,
+        http_request: Request,
         principal=Depends(require_auth),
     ):
         """Create a chat session.
 
-        The authenticated principal is recorded as the session owner. Under the
-        shared-key and loopback auth modes that principal is not attributable to
-        a named human -- it carries ``attributable=False`` and must not be read
-        as an identity. Recording it anyway is still worth doing: it captures
-        HOW the session was authorised, which is the part that becomes an
-        identity once an identity provider is wired in.
+        The authenticated principal is recorded as the session owner, and the
+        session is stamped with ``owner_id`` (the data-scope key) so logged-in
+        users only see their own sessions; loopback/anonymous creation falls
+        back to the legacy "visible to all" pool. Under the loopback auth mode
+        the principal is not attributable to a named human -- it carries
+        ``attributable=False`` and must not be read as an identity.
         """
         svc = _host_get_session_service()
         if not svc:
             raise HTTPException(status_code=501, detail="Session runtime not enabled")
+        try:
+            from src.auth.dependency import get_current_principal
+            owner_id = get_current_principal(http_request).effective_owner_id
+        except Exception:
+            owner_id = None
         session = svc.create_session(
-            title=request.title, config=request.config, owner=principal
+            title=request.title, config=request.config, owner=principal, owner_id=owner_id
         )
         return SessionResponse(
             session_id=session.session_id,
@@ -374,7 +380,6 @@ def register_sessions_routes(app: FastAPI) -> None:
         except Exception:
             owner_id = None
         sessions = svc.list_sessions(limit=limit, owner_id=owner_id)
-        sessions = svc.list_sessions(limit=limit)
         return [
             SessionResponse(
                 session_id=s.session_id,

@@ -130,12 +130,11 @@ def test_readiness_helper_missing_provider(monkeypatch: pytest.MonkeyPatch):
 # ---------------------------------------------------------------------------
 
 
-def test_correlation_requires_auth_for_remote_client(monkeypatch: pytest.MonkeyPatch):
-    """A non-loopback caller with a configured key but no token is rejected."""
-    monkeypatch.setattr(api_server, "_API_KEY", "server-secret")
+def test_correlation_requires_auth_for_remote_client():
+    """A non-loopback caller without a JWT is rejected."""
     remote = TestClient(api_server.app, client=("203.0.113.9", 51000))
     resp = remote.get("/correlation", params={"codes": "AAPL,SPY"})
-    assert resp.status_code == 401
+    assert resp.status_code == 403
 
 
 def test_correlation_allows_local_and_masks_generic_error(

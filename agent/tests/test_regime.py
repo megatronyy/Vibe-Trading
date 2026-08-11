@@ -271,14 +271,13 @@ def test_regime_route_returns_computation_result(local_client, monkeypatch):
     assert resp.json() == _STUB_RESULT
 
 
-def test_regime_route_requires_auth_for_remote_client(monkeypatch):
+def test_regime_route_requires_auth_for_remote_client():
     import api_server
     from fastapi.testclient import TestClient
 
-    monkeypatch.setattr(api_server, "_API_KEY", "server-secret")
     remote = TestClient(api_server.app, client=("203.0.113.9", 51000))
     resp = remote.get("/correlation/regime", params={"codes": "AAPL,SPY"})
-    assert resp.status_code == 401
+    assert resp.status_code == 403
 
 
 def test_regime_route_validates_code_count(local_client):

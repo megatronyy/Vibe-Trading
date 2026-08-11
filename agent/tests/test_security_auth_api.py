@@ -30,11 +30,11 @@ def clear_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(api_server, "_API_KEY", "")
 
 
-def test_remote_write_requires_api_key_when_key_unset() -> None:
+def test_remote_write_requires_jwt_when_no_token() -> None:
     response = _remote_client().post("/sessions", json={})
 
     assert response.status_code == 403
-    assert "API_AUTH_KEY" in response.json()["detail"]
+    assert "Authentication required" in response.json()["detail"]
 
 
 def test_remote_goal_endpoints_require_api_key_when_key_unset() -> None:
@@ -98,11 +98,7 @@ def test_docker_network_peer_is_not_local_even_with_compose_trust_flag(
     assert not api_server._is_local_client(request)
 
 
-def test_configured_api_key_required_for_sensitive_reads(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
+def test_remote_sensitive_reads_require_jwt() -> None:
     client = _remote_client()
 
     for path in [
@@ -112,48 +108,43 @@ def test_configured_api_key_required_for_sensitive_reads(
         "/swarm/runs",
     ]:
         response = client.get(path)
-        assert response.status_code == 401, path
+        assert response.status_code == 403, path
 
 
-def test_configured_api_key_accepts_bearer_for_sensitive_reads(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
-
+def test_remote_sensitive_reads_accept_valid_jwt(make_jwt) -> None:
     response = _remote_client().get(
         "/runs",
-        headers={"Authorization": "Bearer secret"},
+        headers={"Authorization": f"Bearer {make_jwt()}"},
     )
 
     assert response.status_code == 200
 
 
-def test_loopback_requires_auth_when_api_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """GHSA-7wgj: a configured key gates EVERY peer, loopback included."""
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
-
+def test_loopback_trusted_and_remote_needs_jwt(make_jwt) -> None:
+    """JWT-only auth: loopback dev-trust is unconditional; remote peers need a JWT."""
     local = _local_client()
     remote = _remote_client()
 
-    # Loopback without bearer: no longer bypasses the configured key → rejected
-    local_response = local.get("/runs")
-    assert local_response.status_code == 401
+    # Loopback without a token: trusted (dev mode).
+    assert local.get("/runs").status_code == 200
 
-    # Loopback with bearer: accepted (this is the frontend's authenticated path)
-    local_bearer = local.get("/runs", headers={"Authorization": "Bearer secret"})
-    assert local_bearer.status_code == 200
+    # Loopback with a valid JWT: accepted.
+    assert local.get(
+        "/runs", headers={"Authorization": f"Bearer {make_jwt()}"}
+    ).status_code == 200
 
-    # Remote without bearer: still rejected
-    remote_response = remote.get("/runs")
-    assert remote_response.status_code == 401
+    # Remote without a token: rejected (403).
+    assert remote.get("/runs").status_code == 403
 
-    # Remote with bearer: accepted
-    remote_bearer = remote.get("/runs", headers={"Authorization": "Bearer secret"})
-    assert remote_bearer.status_code == 200
+    # Remote with a valid JWT: accepted.
+    assert remote.get(
+        "/runs", headers={"Authorization": f"Bearer {make_jwt()}"}
+    ).status_code == 200
+
+    # Remote with an invalid bearer: rejected (401).
+    assert remote.get(
+        "/runs", headers={"Authorization": "Bearer not-a-jwt"}
+    ).status_code == 401
 
 
 def _llm_settings_payload(base_url: str = "https://api.openai.com/v1") -> dict[str, object]:
@@ -205,24 +196,39 @@ def test_dns_rebound_loopback_cannot_write_llm_settings_without_bearer(
     assert "OPENAI_API_KEY=sk-existing-test-key" in saved
 
 
-def test_authorized_client_can_write_llm_settings_when_api_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
+def test_authorized_remote_client_can_write_llm_settings_with_jwt(
+    make_jwt, monkeypatch: pytest.MonkeyPatch, tmp_path,
 ) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
     env_path = tmp_path / ".env"
     env_path.write_text("", encoding="utf-8")
     monkeypatch.setattr(api_server, "ENV_PATH", env_path)
 
     response = _remote_client().put(
         "/settings/llm",
-        headers={"Authorization": "Bearer secret"},
+        headers={"Authorization": f"Bearer {make_jwt()}"},
         json=_llm_settings_payload("https://api.openai.com/v1"),
     )
 
     assert response.status_code == 200
     assert "OPENAI_BASE_URL=https://api.openai.com/v1" in env_path.read_text(encoding="utf-8")
+
+
+def test_settings_write_rejects_non_admin_jwt(
+    make_jwt, monkeypatch: pytest.MonkeyPatch, tmp_path,
+) -> None:
+    """Settings writes are admin-only; a valid non-admin JWT is rejected with 403."""
+    env_path = tmp_path / ".env"
+    env_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(api_server, "ENV_PATH", env_path)
+
+    response = _remote_client().put(
+        "/settings/llm",
+        headers={"Authorization": f"Bearer {make_jwt(role='user')}"},
+        json=_llm_settings_payload("https://api.openai.com/v1"),
+    )
+
+    assert response.status_code == 403
+    assert "OPENAI_BASE_URL=https://api.openai.com/v1" not in env_path.read_text(encoding="utf-8")
 
 
 def test_local_dev_can_write_llm_settings_when_api_key_unset(
@@ -257,19 +263,14 @@ def test_loopback_rejects_rebound_host_before_auth_bypass(
     assert response.json()["detail"] == "Untrusted local API host"
 
 
-def test_remote_untrusted_host_still_uses_bearer_auth(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The Host gate only narrows loopback trust; remote clients still use API_AUTH_KEY."""
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
-
+def test_remote_untrusted_host_still_requires_jwt() -> None:
+    """The Host gate only narrows loopback trust; remote clients still need a JWT."""
     response = _remote_client().get(
         "/runs",
         headers={"Host": "attacker.example:8899", "Origin": "http://attacker.example:8899"},
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 
 def test_rebound_host_cannot_start_live_runner(
@@ -344,27 +345,17 @@ def test_allowed_loopback_host_can_start_live_runner_dev_mode(
         task.cancel()
 
 
-def test_configured_api_key_required_for_session_event_stream(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
-
+def test_remote_event_stream_requires_jwt_or_ticket() -> None:
     response = _remote_client().get("/sessions/missing/events")
 
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 
-def test_session_event_stream_rejects_long_lived_api_key_query(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """VT-003: the long-lived key is no longer accepted in the SSE query string."""
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
-
+def test_session_event_stream_rejects_api_key_query() -> None:
+    """An api_key= query param is not a credential; remote callers get 403."""
     response = _remote_client().get("/sessions/missing/events?api_key=secret")
 
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 
 def test_session_event_stream_accepts_single_use_ticket_for_browser_eventsource(
@@ -496,19 +487,17 @@ def test_cors_origins_accept_explicit_remote_origins() -> None:
     assert origins == ["https://app.example.com", "https://admin.example.com"]
 
 
-def test_loopback_shutdown_requires_bearer_when_api_key_configured(
+def test_loopback_shutdown_trusted_in_dev_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Loopback alone must not authorize the browser-reachable shutdown action."""
+    """Loopback dev-trust authorizes the local shutdown action; no key needed."""
     called: list[bool] = []
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
     monkeypatch.setattr(api_server, "_terminate_current_process", lambda: called.append(True))
 
     response = _local_client().post("/system/shutdown")
 
-    assert response.status_code == 401
-    assert called == []
+    assert response.status_code == 200
+    assert called == [True]
 
 
 def test_loopback_shutdown_rejects_cross_site_browser_request(
@@ -529,17 +518,15 @@ def test_loopback_shutdown_rejects_cross_site_browser_request(
     assert called == []
 
 
-def test_loopback_shutdown_accepts_valid_bearer(
-    monkeypatch: pytest.MonkeyPatch,
+def test_loopback_shutdown_accepts_valid_jwt(
+    make_jwt, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     called: list[bool] = []
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
     monkeypatch.setattr(api_server, "_terminate_current_process", lambda: called.append(True))
 
     response = _local_client().post(
         "/system/shutdown",
-        headers={"Authorization": "Bearer secret", "Origin": "http://127.0.0.1:8899"},
+        headers={"Authorization": f"Bearer {make_jwt()}", "Origin": "http://127.0.0.1:8899"},
     )
 
     assert response.status_code == 200

@@ -56,7 +56,9 @@ def test_channels_status_can_render_local_json(monkeypatch) -> None:
     assert _legacy.main(["channels", "status", "--local", "--json"]) == _legacy.EXIT_SUCCESS
 
 
-def test_channels_api_call_sends_configured_bearer_token(monkeypatch) -> None:
+def test_channels_api_call_sends_no_static_key(monkeypatch) -> None:
+    """JWT-only API auth: the CLI sends no bearer; local control calls rely on loopback."""
+
     captured = {}
 
     class FakeResponse:
@@ -78,7 +80,7 @@ def test_channels_api_call_sends_configured_bearer_token(monkeypatch) -> None:
     monkeypatch.setattr(httpx, "get", fake_get)
 
     assert _legacy._channels_api_call("GET", "/channels/status") == {"status": "ok"}
-    assert captured["headers"] == {"Authorization": "Bearer secret-token"}
+    assert captured["headers"] == {}
 
 
 @pytest.mark.parametrize(

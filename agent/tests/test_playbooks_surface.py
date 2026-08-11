@@ -356,7 +356,8 @@ class TestRestAuth:
     ) -> None:
         monkeypatch.setenv("API_AUTH_KEY", "secret")
         monkeypatch.setattr(api_server, "_API_KEY", "secret")
-        keyed = TestClient(api_server.app)
+        # Non-loopback caller: no JWT -> rejected (loopback dev-trust is unconditional).
+        keyed = TestClient(api_server.app, client=("203.0.113.10", 50000))
 
         response = keyed.request(method.upper(), path, json={})
 
@@ -377,14 +378,12 @@ class TestRestAuth:
         path: str,
         expected: int,
         rest_store: ScheduledResearchJobStore,
-        monkeypatch: pytest.MonkeyPatch,
+        make_jwt,
     ) -> None:
-        monkeypatch.setenv("API_AUTH_KEY", "secret")
-        monkeypatch.setattr(api_server, "_API_KEY", "secret")
         keyed = TestClient(api_server.app)
 
         response = keyed.request(
-            method.upper(), path, json={}, headers={"Authorization": "Bearer secret"}
+            method.upper(), path, json={}, headers={"Authorization": f"Bearer {make_jwt()}"}
         )
 
         assert response.status_code == expected

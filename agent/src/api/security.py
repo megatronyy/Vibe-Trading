@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hmac
 import ipaddress
 import logging
 import re
@@ -402,19 +401,13 @@ def _require_shutdown_authorization(
     request: Request,
     cred: Optional[HTTPAuthorizationCredentials],
 ) -> None:
-    """Authorize the local shutdown control-plane action."""
+    """Authorize the local shutdown control-plane action.
+
+    Always rejects cross-site browser requests first (shutdown is POST-only and
+    browser-reachable), then applies the shared JWT-or-loopback decision.
+    """
     _reject_cross_site_browser_request(request)
-    api_key = _configured_api_key()
-    if api_key:
-        token = _auth_credential_from_header_or_query(cred, None, allow_query=False)
-        if not token or not hmac.compare_digest(token, api_key):
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
-        return
-    if not _is_local_client(request):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="API_AUTH_KEY is required for non-local API access",
-        )
+    _resolve_token_or_loopback(request, cred)
 
 
 #: Subject recorded when the caller proved possession of the shared API key.
@@ -424,6 +417,77 @@ SHARED_KEY_SUBJECT = "shared-key-holder"
 
 #: Subject recorded when no key is configured and a loopback client was trusted.
 LOOPBACK_SUBJECT = "loopback-operator"
+
+#: Subject recorded when a browser EventSource authenticated via a single-use
+#: ticket. Tickets authorise but cannot name a person, so this is not attributable.
+SSE_TICKET_SUBJECT = "sse-ticket-holder"
+
+
+def _resolve_token_or_loopback(
+    request: Request,
+    cred: Optional[HTTPAuthorizationCredentials],
+    *,
+    query_api_key: Optional[str] = None,
+    allow_query: bool = False,
+    ticket: Optional[str] = None,
+    require_role: Optional[str] = None,
+) -> Principal:
+    """The single auth decision core shared by every dependency.
+
+    Resolution order: a presented bearer token must verify as a JWT (the only
+    accepted credential); otherwise a single-use SSE ticket; otherwise loopback
+    dev-trust; otherwise the request is rejected. ``API_AUTH_KEY`` is
+    intentionally not consulted here -- it is now just a cache-HMAC key, not an
+    auth secret.
+
+    When ``require_role`` is set, a JWT caller whose ``role`` claim does not
+    match is rejected with 403 even though the token is valid. Loopback
+    dev-trust (no token) is NOT role-gated, so local dev stays permissive.
+
+    Returns:
+        The :class:`~src.session.models.Principal` the request authenticated as.
+        A JWT user is attributable (``subject`` = the username claim); a ticket
+        or loopback peer is not.
+
+    Raises:
+        HTTPException: 401 for a presented-but-invalid credential, 403 for a
+            non-loopback peer with no credential or a JWT lacking the required
+            role.
+    """
+    token = _auth_credential_from_header_or_query(cred, query_api_key, allow_query=allow_query)
+    if token:
+        try:
+            from src.auth.tokens import verify_token
+            claims = verify_token(token)
+            if claims:
+                if require_role is not None and claims.get("role") != require_role:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"{require_role} role required for this action",
+                    )
+                return Principal(
+                    subject=(claims.get("username") or claims.get("sub") or "jwt-user"),
+                    auth_method=AuthMethod.JWT,
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    if ticket:
+        # A presented-but-invalid ticket is an auth failure (401), not a missing
+        # credential (403).
+        if _consume_sse_ticket(ticket):
+            return Principal(subject=SSE_TICKET_SUBJECT, auth_method=AuthMethod.LOOPBACK_TRUST)
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    if _is_local_client(request):
+        return Principal(subject=LOOPBACK_SUBJECT, auth_method=AuthMethod.LOOPBACK_TRUST)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Authentication required for non-local API access",
+    )
 
 
 def _validate_api_auth(
@@ -435,10 +499,10 @@ def _validate_api_auth(
 ) -> Principal:
     """Validate configured auth, preserving loopback-only dev mode.
 
-    Key-first precedence: when an API key is configured every peer -- including
-    loopback -- must present a valid credential (GHSA-7wgj). Only when no key is
-    configured does the loopback dev-trust apply. Mirrors
-    :func:`require_settings_write_auth`.
+    JWT-first: a presented bearer token must verify as a JWT -- the only
+    accepted credential. ``API_AUTH_KEY`` is no longer consulted here (it
+    remains a cache-HMAC key, not an auth secret). With no token, only loopback
+    clients are trusted (dev mode). Mirrors :func:`require_settings_write_auth`.
 
     Returns:
         The :class:`~src.session.models.Principal` the request authenticated as.
@@ -455,30 +519,8 @@ def _validate_api_auth(
     if request.method.upper() not in _SAFE_BROWSER_METHODS:
         _reject_cross_site_browser_request(request)
 
-    api_key = _configured_api_key()
-    if api_key:
-        token = _auth_credential_from_header_or_query(cred, query_api_key, allow_query=allow_query)
-        if not token:
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
-        # 1. Check against the configured API key (legacy single-tenant).
-        if hmac.compare_digest(token, api_key):
-            return Principal(subject=SHARED_KEY_SUBJECT, auth_method=AuthMethod.SHARED_KEY)
-        # 2. Check as a JWT (multi-user auth). If valid, accept it.
-        try:
-            from src.auth.tokens import verify_token
-            claims = verify_token(token)
-            if claims:
-                return Principal(subject=claims.get("username", "jwt-user"), auth_method=AuthMethod.SHARED_KEY)
-        except Exception:
-            pass
-        # 3. Neither API key nor valid JWT.
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-
-    if _is_local_client(request):
-        return Principal(subject=LOOPBACK_SUBJECT, auth_method=AuthMethod.LOOPBACK_TRUST)
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="API_AUTH_KEY is required for non-local API access",
+    return _resolve_token_or_loopback(
+        request, cred, query_api_key=query_api_key, allow_query=allow_query
     )
 
 
@@ -583,65 +625,30 @@ async def require_event_stream_auth(
     if request.method.upper() not in _SAFE_BROWSER_METHODS:
         _reject_cross_site_browser_request(request)
 
-    api_key = _configured_api_key()
-    if api_key:
-        token = cred.credentials if (cred and cred.credentials) else ""
-        # 1. API key match (legacy).
-        if token and hmac.compare_digest(token, api_key):
-            return
-        # 2. JWT match (multi-user auth).
-        if token:
-            try:
-                from src.auth.tokens import verify_token
-                if verify_token(token):
-                    return
-            except Exception:
-                pass
-        # 3. SSE ticket (browser EventSource).
-        if ticket and _consume_sse_ticket(ticket):
-            return
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-
-    if _is_local_client(request):
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="API_AUTH_KEY is required for non-local API access",
-    )
+    _resolve_token_or_loopback(request, cred, ticket=ticket)
+    return
 
 
 async def require_local_or_auth(
     request: Request,
     cred: Optional[HTTPAuthorizationCredentials] = Security(_security),
 ) -> None:
-    """Protect settings access when dev-mode auth is disabled."""
-    if _configured_api_key():
-        await require_auth(request, cred)
-        return
-    if not _is_local_client(request):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Settings access requires API_AUTH_KEY or a local loopback client",
-        )
+    """Protect settings access; accept a JWT or a local loopback client."""
+    _resolve_token_or_loopback(request, cred)
+    return
 
 
 async def require_settings_write_auth(
     request: Request,
     cred: Optional[HTTPAuthorizationCredentials] = Security(_security),
 ) -> None:
-    """Require explicit authorization before changing credential-routing settings."""
-    api_key = _configured_api_key()
-    if api_key:
-        token = _auth_credential_from_header_or_query(cred, None, allow_query=False)
-        if not token or not hmac.compare_digest(token, api_key):
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
-        return
+    """Require an admin JWT (or a local loopback client) before changing credential-routing settings.
 
-    if not _is_local_client(request):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Settings writes require API_AUTH_KEY or a local loopback client",
-        )
+    A non-admin JWT is rejected with 403 even though it is valid; loopback
+    dev-trust stays permissive so local configuration keeps working.
+    """
+    _resolve_token_or_loopback(request, cred, require_role="admin")
+    return
 
 
 _LEGACY_LAZY_NAMES = {
