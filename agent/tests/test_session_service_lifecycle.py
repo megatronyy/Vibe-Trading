@@ -51,6 +51,32 @@ def _stub_agent(service: SessionService, monkeypatch, result: dict, *, gate=None
 
 
 # ---------------------------------------------------------------------------
+# Owner-id isolation (create_session stamps the data-scope key)
+# ---------------------------------------------------------------------------
+
+
+def test_create_session_stamps_owner_id_and_filters_list(tmp_path, monkeypatch) -> None:
+    """A session stamped with a user's owner_id is theirs alone; legacy is shared."""
+    svc = _service(tmp_path, monkeypatch)
+
+    alice_session = svc.create_session(title="alice's session", owner_id="user-alice")
+    legacy_session = svc.create_session(title="legacy")
+
+    assert alice_session.owner_id == "user-alice"
+    assert legacy_session.owner_id is None
+
+    seen_by_alice = {s.session_id for s in svc.list_sessions(owner_id="user-alice")}
+    seen_by_bob = {s.session_id for s in svc.list_sessions(owner_id="user-bob")}
+
+    # Alice sees her own session plus the legacy (visible-to-all) one.
+    assert alice_session.session_id in seen_by_alice
+    assert legacy_session.session_id in seen_by_alice
+    # Bob does NOT see Alice's session, but still sees the legacy one.
+    assert alice_session.session_id not in seen_by_bob
+    assert legacy_session.session_id in seen_by_bob
+
+
+# ---------------------------------------------------------------------------
 # Concurrency
 # ---------------------------------------------------------------------------
 

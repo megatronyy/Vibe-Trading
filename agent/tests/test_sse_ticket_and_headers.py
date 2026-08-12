@@ -79,17 +79,14 @@ def test_sse_ticket_endpoint_mints_in_loopback_dev_mode() -> None:
     assert response.json()["ticket"]
 
 
-def test_sse_ticket_endpoint_requires_bearer_when_key_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
+def test_sse_ticket_endpoint_requires_jwt_for_remote_caller(make_jwt) -> None:
+    # Remote caller without a token is rejected; minting requires a JWT in the
+    # Authorization header (never a URL).
+    assert _remote_client().post("/auth/sse-ticket").status_code == 403
 
-    # Remote caller without the header is rejected — minting requires the key
-    # in an Authorization header (never a URL).
-    assert _remote_client().post("/auth/sse-ticket").status_code == 401
-
-    ok = _remote_client().post("/auth/sse-ticket", headers={"Authorization": "Bearer secret"})
+    ok = _remote_client().post(
+        "/auth/sse-ticket", headers={"Authorization": f"Bearer {make_jwt()}"}
+    )
     assert ok.status_code == 200
     assert ok.json()["ticket"]
 
@@ -117,15 +114,10 @@ def test_event_stream_accepts_ticket_once_then_rejects_reuse(
     assert second.status_code == 401
 
 
-def test_event_stream_still_accepts_bearer_header_for_non_browser_callers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
-
+def test_event_stream_still_accepts_jwt_header_for_non_browser_callers(make_jwt) -> None:
     response = _remote_client().get(
         "/sessions/missing/events",
-        headers={"Authorization": "Bearer secret"},
+        headers={"Authorization": f"Bearer {make_jwt()}"},
     )
     assert response.status_code in {404, 501}
 

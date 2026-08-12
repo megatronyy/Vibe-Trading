@@ -43,3 +43,37 @@ def _reset_env_config():
     os.environ.clear()
     os.environ.update(saved_environ)
     reset_env_config()
+
+
+@pytest.fixture
+def make_jwt():
+    """Return a callable that mints a verifiable JWT for the auth tests.
+
+    API auth is JWT-only, so tests that previously sent ``Authorization: Bearer
+    <API_AUTH_KEY>`` now need a real signed token. ``src.auth.tokens`` caches the
+    HMAC secret module-globally (``_CACHED_SECRET``); pinning it to a fixed value
+    here makes ``issue_token`` and ``verify_token`` agree within the test, and
+    the prior cache is restored afterward so other tests are unaffected.
+    """
+    from src.auth import tokens as _tokens
+
+    saved = _tokens._CACHED_SECRET
+    _tokens._CACHED_SECRET = "test-jwt-secret-fixed-0123456789abcdef"
+    try:
+
+        def _make(username: str = "alice", role: str = "admin", user_id: str = "u1") -> str:
+            from src.auth.models import User
+
+            user = User(
+                user_id=user_id,
+                username=username,
+                role=role,
+                password_hash="x",
+                created_at="2026-01-01T00:00:00+00:00",
+            )
+            token, _ = _tokens.issue_token(user)
+            return token
+
+        yield _make
+    finally:
+        _tokens._CACHED_SECRET = saved

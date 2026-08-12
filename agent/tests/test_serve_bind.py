@@ -3,7 +3,7 @@
 Covers the secure-by-default behavior added for #333:
   - `_is_loopback_bind_host` classification (IPv4 / IPv6 / hostname / edge)
   - `serve_main` defaults the bind address to loopback (127.0.0.1)
-  - binding a non-loopback address without API_AUTH_KEY emits a startup warning,
+  - binding a non-loopback address without auth configured emits a startup warning,
     while loopback or a configured key stays quiet
 
 Warning assertions match the bind warning's own text rather than the bare
@@ -21,8 +21,8 @@ import pytest
 
 import api_server
 
-# Unique substring of the non-loopback bind warning (api_server.py:3513).
-_BIND_WARN = "without API_AUTH_KEY set"
+# Unique substring of the non-loopback bind warning (api_server.py serve_main).
+_BIND_WARN = "without auth configured"
 
 
 @pytest.mark.unit

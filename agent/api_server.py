@@ -359,9 +359,9 @@ def serve_main(argv: list[str] | None = None) -> int:
 
     if not _is_loopback_bind_host(args.host) and not _configured_api_key():
         print(
-            f"[warn] Binding to {args.host} without API_AUTH_KEY set. "
-            f"Remote requests are rejected by the loopback peer-IP check, "
-            f"but consider using --host 127.0.0.1 for local-only access."
+            f"[warn] Binding to {args.host} without auth configured. "
+            f"Remote requests without a valid JWT are rejected by the loopback "
+            f"peer-IP check; consider using --host 127.0.0.1 for local-only access."
         )
 
     frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"

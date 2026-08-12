@@ -102,7 +102,9 @@ cd frontend && npm ci && npm run build
   private trading exports.
 - Treat secrets as access, not text. If one appears, redact it, stop repeating
   it, and recommend rotation.
-- API or Web deployments beyond loopback must use `API_AUTH_KEY`.
+- API or Web deployments beyond loopback must configure JWT users (the Web UI
+  login screen / `POST /auth/register`); `API_AUTH_KEY` is no longer an accepted
+  API credential (JWT is the only bearer token, loopback dev-trust is preserved).
 - External MCP servers are operator-trust surfaces. Do not allow caller-provided
   MCP command, URL, environment, or allowlist injection unless the code path
   explicitly documents and tests that opt-in.

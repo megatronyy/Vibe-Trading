@@ -38,14 +38,13 @@ export function clearJwt(): void {
 }
 
 /**
- * Prefer the JWT; fall back to the long-lived API key. Returns an empty object
- * when neither is stored (loopback dev mode bypasses auth on the backend).
+ * Prefer a JWT; return an empty object when none is stored (loopback dev mode
+ * bypasses auth on the backend). API_AUTH_KEY is no longer an accepted server
+ * credential, so it is never sent as a bearer token here.
  */
 export function getAuthHeaders(): Record<string, string> {
   const jwt = getJwt();
-  if (jwt) return { Authorization: `Bearer ${jwt}` };
-  const key = getApiAuthKey();
-  return key ? { Authorization: `Bearer ${key}` } : {};
+  return jwt ? { Authorization: `Bearer ${jwt}` } : {};
 }
 
 /** Backwards-compatible alias; new code should call {@link getAuthHeaders}. */

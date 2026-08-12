@@ -51,43 +51,32 @@ def test_cross_site_browser_upload_is_rejected_even_from_loopback(
     assert _existing_uploads(tmp_path) == []
 
 
-def test_loopback_upload_requires_bearer_when_key_configured(
+def test_loopback_upload_works_without_token_even_when_key_configured(
     client: TestClient,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # GHSA-7wgj: a configured key gates uploads even on loopback. Without a
-    # bearer the loopback upload is rejected; with the bearer it succeeds — the
-    # bundled frontend sends Authorization once the key is stored in Settings.
+    # JWT-only auth: a configured API_AUTH_KEY no longer gates loopback uploads.
     monkeypatch.setenv("API_AUTH_KEY", "secret")
     monkeypatch.setattr(api_server, "_API_KEY", "secret")
 
-    unauth = client.post(
+    response = client.post(
         "/upload",
         headers={"Host": "127.0.0.1:8899"},
         files={"file": ("note.txt", b"safe", "text/plain")},
     )
-    assert unauth.status_code == 401
-    assert _existing_uploads(tmp_path) == []
-
-    authed = client.post(
-        "/upload",
-        headers={"Host": "127.0.0.1:8899", "Authorization": "Bearer secret"},
-        files={"file": ("note.txt", b"safe", "text/plain")},
-    )
-    assert authed.status_code == 200
+    assert response.status_code == 200
     assert len(_existing_uploads(tmp_path)) == 1
 
 
-def test_remote_same_origin_browser_upload_with_api_key_is_allowed(
+def test_remote_same_origin_browser_upload_with_jwt_is_allowed(
+    make_jwt,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(api_server, "UPLOADS_DIR", tmp_path)
     monkeypatch.setattr(api_server, "MAX_UPLOAD_SIZE", 4 * 1024)
     monkeypatch.setattr(api_server, "_UPLOAD_CHUNK_SIZE", 1024)
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
     remote_client = TestClient(
         api_server.app,
         base_url="http://192.168.1.10:8899",
@@ -100,7 +89,7 @@ def test_remote_same_origin_browser_upload_with_api_key_is_allowed(
             "Host": "192.168.1.10:8899",
             "Origin": "http://192.168.1.10:8899",
             "Sec-Fetch-Site": "same-origin",
-            "Authorization": "Bearer secret",
+            "Authorization": f"Bearer {make_jwt()}",
         },
         files={"file": ("note.txt", b"remote", "text/plain")},
     )

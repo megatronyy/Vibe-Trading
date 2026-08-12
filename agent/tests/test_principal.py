@@ -34,10 +34,14 @@ def test_a_loopback_principal_is_not_attributable():
     assert principal.attributable is False
 
 
-def test_only_federated_identity_is_attributable():
-    assert ATTRIBUTABLE_AUTH_METHODS == frozenset({AuthMethod.FEDERATED_IDENTITY})
+def test_jwt_and_federated_identity_are_attributable():
+    assert ATTRIBUTABLE_AUTH_METHODS == frozenset(
+        {AuthMethod.FEDERATED_IDENTITY, AuthMethod.JWT}
+    )
     named = Principal(subject="alice@example.com", auth_method=AuthMethod.FEDERATED_IDENTITY)
     assert named.attributable is True
+    jwt_user = Principal(subject="alice", auth_method=AuthMethod.JWT)
+    assert jwt_user.attributable is True
 
 
 def test_attributable_cannot_be_set_by_the_caller():
@@ -193,25 +197,23 @@ def test_owner_id_round_trips_and_survives_rewrite():
 
 # --- the auth surface returns one ---
 
-def test_validate_api_auth_returns_a_shared_key_principal(monkeypatch):
+def test_validate_api_auth_returns_a_jwt_principal(make_jwt, monkeypatch):
     from src.api import security
 
-    monkeypatch.setattr(security, "_configured_api_key", lambda: "secret-key")
+    token = make_jwt(username="alice")
+    monkeypatch.setattr(security, "_is_local_client", lambda request: False)
 
     class _Cred:
-        credentials = "secret-key"
+        credentials = token
 
     class _Req:
         method = "GET"
         headers: dict[str, str] = {}
 
-        class client:  # noqa: N801
-            host = "127.0.0.1"
-
     principal = security._validate_api_auth(request=_Req(), cred=_Cred())
-    assert principal.auth_method is AuthMethod.SHARED_KEY
-    assert principal.subject == SHARED_KEY_SUBJECT
-    assert principal.attributable is False
+    assert principal.auth_method is AuthMethod.JWT
+    assert principal.subject == "alice"
+    assert principal.attributable is True
 
 
 def test_validate_api_auth_returns_a_loopback_principal_when_no_key(monkeypatch):

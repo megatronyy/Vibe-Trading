@@ -566,7 +566,8 @@ class TestProposalPickIntercept:
         assert captured["body"]["broker"] == "robinhood"
         assert captured["body"]["account_ref"] == "acct-demo"
         assert captured["body"]["consent_ack"] is True
-        assert captured["headers"] == {"Authorization": "Bearer cli-secret"}
+        # JWT-only API auth: the CLI sends no bearer (loopback trust on the server).
+        assert captured["headers"] == {}
 
     def test_commit_rejects_missing_broker_before_network_call(self) -> None:
         """The CLI validates the exact API request model before sending."""

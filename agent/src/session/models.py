@@ -22,19 +22,29 @@ class AuthMethod(str, Enum):
     """
 
     #: One process-wide static bearer key. Authorises, cannot identify.
+    #: No auth code path emits this since the move to JWT-only API auth; the
+    #: member is retained so historical session.json / audit records carrying
+    #: ``"auth_method": "shared_key"`` still deserialize via
+    #: :meth:`Principal.from_dict`.
     SHARED_KEY = "shared_key"
     #: No key configured; the request came from loopback and was trusted.
     LOOPBACK_TRUST = "loopback_trust"
+    #: A local JWT bearer token validated by
+    #: :func:`src.auth.tokens.verify_token`. The claims name a user
+    #: (``subject = claims["username"]``), so a principal issued under this
+    #: method IS attributable.
+    JWT = "jwt"
     #: A named human authenticated through an identity provider. Not reachable
-    #: today -- listed so that ``attributable`` has a True case to grow into and
-    #: so downstream code branches on the enum rather than on a string it
-    #: invented.
+    #: today -- listed so downstream code branches on the enum rather than on a
+    #: string it invented.
     FEDERATED_IDENTITY = "federated_identity"
 
 
 #: Auth methods that can attribute an action to a named human. Everything else
 #: proves only that *somebody with the secret* acted.
-ATTRIBUTABLE_AUTH_METHODS: frozenset[AuthMethod] = frozenset({AuthMethod.FEDERATED_IDENTITY})
+ATTRIBUTABLE_AUTH_METHODS: frozenset[AuthMethod] = frozenset(
+    {AuthMethod.FEDERATED_IDENTITY, AuthMethod.JWT}
+)
 
 
 @dataclass(frozen=True)
