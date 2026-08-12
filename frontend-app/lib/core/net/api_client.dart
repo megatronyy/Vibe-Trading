@@ -14,9 +14,8 @@ import 'api_error.dart';
 String? currentJwt;
 
 /// Builds a fresh [Dio] for the current [AppConfig]. Because [dioProvider]
-/// watches [appConfigProvider], changing the base URL or API key in Settings
-/// re-creates the client immediately — no restart/reload needed (this replaces
-/// the React app's `window.location.reload()` after saving the API key).
+/// watches [appConfigProvider], changing the base URL in Settings re-creates
+/// the client immediately.
 final dioProvider = Provider<Dio>((ref) {
   final cfg = ref.watch(appConfigProvider);
   final dio = Dio(BaseOptions(
@@ -27,7 +26,7 @@ final dioProvider = Provider<Dio>((ref) {
     responseType: ResponseType.json,
     headers: {'Accept': 'application/json'},
   ));
-  dio.interceptors.add(_BearerInterceptor(cfg.apiKey));
+  dio.interceptors.add(_BearerInterceptor());
   if (kDebugMode) {
     dio.interceptors.add(LogInterceptor(
       requestHeader: false,
@@ -41,21 +40,14 @@ final dioProvider = Provider<Dio>((ref) {
   return dio;
 });
 
-/// Injects the bearer token when present. Prefers the JWT (set after login)
-/// and falls back to the static [AppConfig] API key for the pre-auth surface
-/// (health, /auth/login, …). Mobile SSE can carry this header directly, so the
-/// React frontend's "SSE ticket" detour is unnecessary here.
+/// Injects the JWT bearer token when present. The backend no longer uses
+/// API_AUTH_KEY — all auth is JWT-based via /auth/login.
 class _BearerInterceptor extends Interceptor {
-  _BearerInterceptor(this._apiKey);
-  final String _apiKey;
-
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     final jwt = currentJwt;
     if (jwt != null && jwt.isNotEmpty) {
       options.headers['Authorization'] = 'Bearer $jwt';
-    } else if (_apiKey.isNotEmpty) {
-      options.headers['Authorization'] = 'Bearer $_apiKey';
     }
     handler.next(options);
   }

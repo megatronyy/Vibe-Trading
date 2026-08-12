@@ -20,8 +20,6 @@ class SettingsPage extends ConsumerStatefulWidget {
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   late final TextEditingController _baseCtrl;
-  late final TextEditingController _keyCtrl;
-  bool _obscureKey = true;
   bool _testing = false;
   String? _testResult;
 
@@ -48,14 +46,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     super.initState();
     final cfg = ref.read(appConfigProvider);
     _baseCtrl = TextEditingController(text: cfg.baseUrl);
-    _keyCtrl = TextEditingController(text: cfg.apiKey);
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadAll());
   }
 
   @override
   void dispose() {
     _baseCtrl.dispose();
-    _keyCtrl.dispose();
     for (final c in _llmCtrls.values) {
       c.dispose();
     }
@@ -93,7 +89,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _saveConnection() async {
     await ref.read(appConfigProvider.notifier).setBaseUrl(_baseCtrl.text);
-    await ref.read(appConfigProvider.notifier).setApiKey(_keyCtrl.text);
     _toast('Connection saved.');
   }
 
@@ -264,8 +259,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final l = AppLocalizations.of(context)!;
     return Column(children: [
         TextField(controller: _baseCtrl, decoration: InputDecoration(labelText: l.settingsBaseUrl, prefixIcon: const Icon(Icons.link)), keyboardType: TextInputType.url),
-        const SizedBox(height: 8),
-        TextField(controller: _keyCtrl, obscureText: _obscureKey, decoration: InputDecoration(labelText: l.settingsApiKey, prefixIcon: const Icon(Icons.key), suffixIcon: IconButton(icon: Icon(_obscureKey ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _obscureKey = !_obscureKey)))),
         const SizedBox(height: 8),
         Row(children: [
           FilledButton.icon(onPressed: _saveConnection, icon: const Icon(Icons.save), label: Text(l.commonSave)),

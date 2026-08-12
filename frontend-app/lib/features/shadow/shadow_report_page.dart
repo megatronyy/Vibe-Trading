@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/net/api_client.dart';
 
 /// Shadow-account report viewer. `/shadow-reports/:id` is a backend-rendered
 /// HTML route (not a frontend page), so it opens in an in-app WebView with the
@@ -37,7 +38,9 @@ class _ShadowReportPageState extends ConsumerState<ShadowReportPage> {
       ))
       ..loadRequest(
         Uri.parse(url),
-        headers: cfg.apiKey.isNotEmpty ? {'Authorization': 'Bearer ${cfg.apiKey}'} : const {},
+        headers: currentJwt != null && currentJwt!.isNotEmpty
+            ? {'Authorization': 'Bearer $currentJwt'}
+            : const {},
       );
   }
 
