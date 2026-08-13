@@ -36,8 +36,7 @@ class ApiException implements Exception {
     // API_AUTH_KEY Bearer token. Surface a clear, actionable message instead
     // of a bare 403.
     if (code == 401 || code == 403) {
-      detail = 'Authentication required ($code). Set the backend API key '
-          '(API_AUTH_KEY from agent/.env) in Settings → API key.';
+      detail = '需要登录 — 请先登录账户。';
     }
     return ApiException(detail, status: code, path: path ?? e.requestOptions.path);
   }

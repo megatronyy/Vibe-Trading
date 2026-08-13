@@ -9,7 +9,9 @@ class AppConfig {
 
   /// Defaults applied when nothing is stored yet, so the app is usable
   /// out-of-the-box against the local backend.
-  static const String defaultBaseUrl = 'http://192.168.3.188:8899';
+  //static const String defaultBaseUrl = 'http://192.168.3.188:8899';
+
+  static const String defaultBaseUrl = 'http://182.92.140.145:8899';
 
   final String baseUrl;
 

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/util/share_file.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/state/auth_provider.dart';
 import '../../core/models/agent_message.dart';
 import '../../core/net/api.dart';
 import '../../core/net/api_error.dart';
@@ -49,11 +50,14 @@ class _AgentPageState extends ConsumerState<AgentPage> {
   }
 
   Future<void> _init() async {
+    // Don't fetch anything if not logged in — the router redirect should have
+    // sent us to /login, but IndexedStack may pre-build this page.
+    final auth = ref.read(authProvider);
+    if (!auth.isLoggedIn) return;
+
     final notifier = ref.read(agentProvider.notifier);
     await notifier.refreshSessions();
     notifier.pollLiveStatus();
-    // Land in the most recent session if none is active yet, so the Agent
-    // opens to an existing chat rather than an empty welcome screen.
     final sessions = ref.read(agentProvider).sessions;
     if (sessions.isNotEmpty && ref.read(agentProvider).sessionId == null) {
       notifier.loadSession(sessions.first.id);

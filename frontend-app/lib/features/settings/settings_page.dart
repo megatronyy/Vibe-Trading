@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:frontend_app/l10n_gen/app_localizations.dart';
 
 import '../../app/app_state.dart';
-import '../../core/config/app_config.dart';
 import '../../core/net/api.dart';
 import '../../core/net/api_error.dart';
 
@@ -19,9 +18,7 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  late final TextEditingController _baseCtrl;
-  bool _testing = false;
-  String? _testResult;
+  // Backend connection config removed from UI — now compile-time in app_config.dart.
 
   // LLM
   final _llmCtrls = <String, TextEditingController>{
@@ -44,14 +41,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    final cfg = ref.read(appConfigProvider);
-    _baseCtrl = TextEditingController(text: cfg.baseUrl);
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadAll());
   }
 
   @override
   void dispose() {
-    _baseCtrl.dispose();
     for (final c in _llmCtrls.values) {
       c.dispose();
     }
@@ -87,26 +81,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
-  Future<void> _saveConnection() async {
-    await ref.read(appConfigProvider.notifier).setBaseUrl(_baseCtrl.text);
-    _toast('Connection saved.');
-  }
-
-  Future<void> _testConnection() async {
-    setState(() {
-      _testing = true;
-      _testResult = null;
-    });
-    await _saveConnection();
-    try {
-      final h = await ref.read(apiProvider).getHealth();
-      setState(() => _testResult = 'OK — ${h.status}');
-    } catch (e) {
-      setState(() => _testResult = 'Failed: $e');
-    } finally {
-      if (mounted) setState(() => _testing = false);
-    }
-  }
 
   Future<void> _saveLLM() async {
     final body = <String, dynamic>{
@@ -148,11 +122,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     return Scaffold(
       appBar: AppBar(title: Text(l.settingsTitle)),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        _section(l.settingsBackend),
-        _connectionRow(),
-        if (_testResult != null)
-          Padding(padding: const EdgeInsets.only(top: 6), child: Text(_testResult!, style: TextStyle(color: _testResult!.startsWith('OK') ? Colors.green : Colors.red))),
-        const SizedBox(height: 20),
+        // Backend connection section removed — base URL is now configured via
+        // app_config.dart (compile-time default) or secure storage (set by
+        // the build/installer, not editable from the UI).
 
         _section(l.settingsAppearance),
         Padding(
@@ -241,11 +213,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         FilledButton(onPressed: _saveDataSource, child: Text('${l.commonSave} ${l.settingsDataSource}')),
         const SizedBox(height: 20),
 
-        FilledButton.tonalIcon(
-          onPressed: () => ref.read(appConfigProvider.notifier).clear(),
-          icon: const Icon(Icons.delete_outline),
-          label: Text(l.settingsClear),
-        ),
+        // "Clear stored credentials" removed — no longer has connection config to clear.
       ]),
     );
   }
@@ -254,23 +222,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(t, style: Theme.of(context).textTheme.titleSmall),
       );
-
-  Widget _connectionRow() {
-    final l = AppLocalizations.of(context)!;
-    return Column(children: [
-        TextField(controller: _baseCtrl, decoration: InputDecoration(labelText: l.settingsBaseUrl, prefixIcon: const Icon(Icons.link)), keyboardType: TextInputType.url),
-        const SizedBox(height: 8),
-        Row(children: [
-          FilledButton.icon(onPressed: _saveConnection, icon: const Icon(Icons.save), label: Text(l.commonSave)),
-          const SizedBox(width: 12),
-          OutlinedButton.icon(
-            onPressed: _testing ? null : _testConnection,
-            icon: _testing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.network_check),
-            label: Text(l.commonTest),
-          ),
-        ]),
-      ]);
-  }
 
   Widget _llmRow(String key, String label, {bool obscure = false}) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
