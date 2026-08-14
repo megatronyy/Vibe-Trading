@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from starlette.responses import Response
 
 from src.config.accessor import get_env_config
 
@@ -271,8 +272,10 @@ def register_scheduled_routes(
         from src.scheduled_research.models import (
             JobStatus,
             ScheduledResearchJob,
+            is_interval_schedule,
             validate_schedule,
             validate_timezone,
+            validate_timezone_shape,
         )
 
         from src.scheduled_research.executor import next_due
@@ -291,7 +294,16 @@ def register_scheduled_routes(
 
         try:
             validate_schedule(request.schedule)
-            validate_timezone(request.timezone)
+            # Interval schedules ignore the timezone, and the executor
+            # deliberately skips resolving it for them so an interval job keeps
+            # advancing on a host whose timezone database lacks the key. The
+            # create path follows the same rule: only a cron schedule, whose
+            # evaluation actually needs the zone, resolves it. Both forms still
+            # reject a blank value.
+            if is_interval_schedule(request.schedule):
+                validate_timezone_shape(request.timezone)
+            else:
+                validate_timezone(request.timezone)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -299,7 +311,7 @@ def register_scheduled_routes(
         next_run_at = request.next_run_at
         if next_run_at is None:
             next_run_at = now_ms
-            if request.timezone is not None and not request.schedule.strip().isdigit():
+            if request.timezone is not None and not is_interval_schedule(request.schedule):
                 # A timezone-carrying cron job's contract is the authored wall
                 # clock, so its first fire is the first authored occurrence —
                 # not the creation moment. Interval jobs and timezone-less
@@ -342,7 +354,7 @@ def register_scheduled_routes(
         status_code=status.HTTP_204_NO_CONTENT,
         dependencies=[Depends(require_auth)],
     )
-    async def delete_scheduled_run(job_id: str) -> None:
+    async def delete_scheduled_run(job_id: str) -> Response:
         """Cancel (delete) a scheduled research job by id."""
         _host_validate_path_param(job_id, "job_id")
         removed = _get_scheduled_research_store().delete(job_id)
@@ -350,6 +362,7 @@ def register_scheduled_routes(
             raise HTTPException(
                 status_code=404, detail=f"scheduled run {job_id} not found"
             )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     # --- Playbook templates ---
     #

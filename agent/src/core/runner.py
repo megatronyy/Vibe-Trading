@@ -334,6 +334,13 @@ _ARTIFACTS_SPEC = {
         "metrics": {"schema": "metrics_csv", "path": "artifacts/metrics.csv"},
         "trades": {"schema": "trade_log", "path": "artifacts/trades.csv"},
         "positions": {"schema": "positions_csv", "path": "artifacts/positions.csv"},
+        # Optimiser requests, kept separate from the executed book above. Without
+        # this entry the file is written but never appears in the runner's
+        # artifact map, so nothing downstream can compare intent against fills.
+        "target_positions": {
+            "schema": "positions_csv",
+            "path": "artifacts/target_positions.csv",
+        },
         "run_card_json": {"schema": "json", "path": "run_card.json"},
         "run_card_md": {"schema": "markdown", "path": "run_card.md"},
     },
@@ -447,6 +454,24 @@ class Runner:
                 "PYTHONUTF8": "1",
             }
         )
+
+        # ``execute()`` replaces HOME with an ephemeral sandbox directory.  The
+        # backtest entry point validates ``run_dir`` again in that child
+        # process, so its HOME-derived default roots no longer include a run
+        # created under the real ``~/.vibe-trading/runs``.  Carry the exact
+        # current run directory across the boundary as an explicit root.  Using
+        # the run itself (rather than its parent) keeps the sandbox grant as
+        # narrow as possible while ensuring artifacts land in the canonical
+        # directory indexed by the Reports API.
+        allowed_run_roots = [
+            item.strip()
+            for item in env.get("VIBE_TRADING_ALLOWED_RUN_ROOTS", "").split(",")
+            if item.strip()
+        ]
+        current_run_root = str(run_dir.resolve())
+        if current_run_root not in allowed_run_roots:
+            allowed_run_roots.append(current_run_root)
+        env["VIBE_TRADING_ALLOWED_RUN_ROOTS"] = ",".join(allowed_run_roots)
 
         if pythonpath_extra:
             existing = env.get("PYTHONPATH", "")
