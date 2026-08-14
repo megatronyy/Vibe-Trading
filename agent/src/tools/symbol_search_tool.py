@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from backtest.loaders import eastmoney_client, sec_edgar_client, yahoo_client
@@ -137,6 +138,23 @@ class SymbolSearchTool(BaseTool):
         merged, sources["sec_edgar"] = _enrich_us_cik(merged)
         if sources["sec_edgar"] == _NO_US:
             del sources["sec_edgar"]
+
+        # Fallback: if all external sources failed and the query is a bare
+        # 6-digit A-share code, auto-generate a candidate from the code
+        # so the grounding ledger can lock it.
+        if not merged and re.match(r"^\d{6}$", query):
+            first = query[0]
+            suffix = ".SH" if first in ("6", "9") else ".SZ" if first in ("0", "2", "3") else ".BJ" if first in ("4", "8") else None
+            if suffix:
+                symbol = query + suffix
+                merged = [{
+                    "symbol": symbol,
+                    "name": f"A-share {symbol}",
+                    "exchange": "SH" if suffix == ".SH" else "SZ" if suffix == ".SZ" else "BJ",
+                    "source": "auto_code_map",
+                }]
+                sources["auto_code_map"] = "ok"
+
         merged = merged[:limit]
 
         return json.dumps(

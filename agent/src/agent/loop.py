@@ -987,7 +987,7 @@ class AgentLoop:
                             final_content = ""
                             if (
                                 iteration < self.max_iterations
-                                and self._grounding.validation_count < 3
+                                and self._grounding.validation_count < 1
                             ):
                                 continue
                             final_content = self._grounding.safe_fallback()

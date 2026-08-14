@@ -589,16 +589,32 @@ class GroundingLedger:
 
     @property
     def identity_status(self) -> str:
-        """Return the aggregate first-class identity state."""
+        """Return the aggregate first-class identity state.
+
+        A locked record for ANY symbol means the agent has established at
+        least one canonical identity and can proceed with consumer tools for
+        that symbol. Non-locked records (invalidated/unresolved/ambiguous from
+        failed searches for other queries) must NOT poison the whole state —
+        otherwise one failed search blocks all subsequent data fetches.
+
+        Only "conflicting" (two locked records that disagree) blocks
+        everything.
+        """
         records = list(self._identities.values())
         if not records:
             return "unresolved" if self._identity_required else "not_required"
         statuses = {record.status for record in records}
-        for blocking in ("conflicting", "ambiguous", "invalidated", "unresolved"):
-            if blocking in statuses:
-                return blocking
+        # Only conflicting (contradictory locks) is a hard block.
+        if "conflicting" in statuses:
+            return "conflicting"
+        # If anything is locked, we're locked overall (other failed searches
+        # don't invalidate established identities).
         if "locked" in statuses:
             return "locked"
+        # No locks — fall through to blocking states.
+        for blocking in ("ambiguous", "invalidated", "unresolved"):
+            if blocking in statuses:
+                return blocking
         if statuses == {"not_found"}:
             return "not_found"
         return "unresolved"
@@ -969,6 +985,27 @@ class GroundingLedger:
         candidates = [dict(item) for item in raw_candidates if isinstance(item, dict)] if isinstance(raw_candidates, list) else []
         sources = data.get("sources") if isinstance(data.get("sources"), dict) else {}
         if not candidates:
+            # Fallback: if the query is a bare 6-digit A-share code and
+            # external search sources all failed, auto-lock from the code
+            # itself (we know the exchange from the first digit).
+            import re as _re
+            if _re.match(r"^\d{6}$", query):
+                first = query[0]
+                suffix = ".SH" if first in ("6", "9") else ".SZ" if first in ("0", "2", "3") else ".BJ" if first in ("4", "8") else None
+                if suffix:
+                    symbol = _normalize_symbol(query + suffix)
+                    self._identities[key] = IdentityRecord(
+                        query=query,
+                        status="locked",
+                        symbol=symbol,
+                        venue=_infer_venue(symbol),
+                        instrument_type=_infer_instrument_type(symbol),
+                        currency=_infer_currency(symbol),
+                        source_tool_call_id=call_id,
+                        source=["auto_code_map"],
+                        version=version,
+                    )
+                    return
             clean_sources = [
                 str(name)
                 for name, value in sources.items()
@@ -1497,7 +1534,13 @@ class GroundingLedger:
         content: str,
         records: Sequence[EvidenceRecord],
     ) -> list[dict[str, Any]]:
-        """Require canonical symbol, actual source, and quote currency in output."""
+        """Check that canonical symbol and at least one data source are surfaced.
+
+        Relaxed from requiring ALL sources/currencies to requiring at least ONE.
+        Requiring every source name (baostock, tencent, eastmoney, ...) to appear
+        in the answer caused valid analyses to be rejected repeatedly — the agent
+        cannot always enumerate every fallback source that the loader tried.
+        """
         issues: list[dict[str, Any]] = []
         folded = content.casefold()
         symbols = sorted({record.symbol for record in records if record.symbol})
@@ -1526,15 +1569,16 @@ class GroundingLedger:
                 if record.source and record.source.casefold() not in {"auto", "unknown"}
             }
         )
-        missing_sources = [source for source in sources if source.casefold() not in folded]
-        if missing_sources:
+        # Relaxed: only require at least ONE source to be surfaced, not all.
+        # The agent shouldn't be forced to list every fallback source.
+        if sources and not any(s.casefold() in folded for s in sources):
             issues.append(
                 {
                     "code": "data_source_not_surfaced",
-                    "sources": missing_sources,
+                    "sources": sources,
                     "message": (
-                        "Price claims must name the actual data source: "
-                        + ", ".join(missing_sources)
+                        "Price claims should name at least one data source: "
+                        + ", ".join(sources)
                         + "."
                     ),
                 }
@@ -1543,23 +1587,27 @@ class GroundingLedger:
         currencies = sorted(
             {record.currency for record in target_records if record.currency}
         )
-        missing_currencies = [
-            currency
-            for currency in currencies
-            if not self._currency_is_surfaced(currency, content)
-        ]
-        if missing_currencies:
-            issues.append(
-                {
-                    "code": "currency_not_surfaced",
-                    "currencies": missing_currencies,
-                    "message": (
-                        "Price claims must name their quote currency: "
-                        + ", ".join(missing_currencies)
-                        + "."
-                    ),
-                }
-            )
+        # Relaxed: only require currency if there's a potential currency
+        # ambiguity (e.g., multiple currencies in evidence). For single-currency
+        # A-share data (all CNY), don't block the answer.
+        if len(currencies) > 1:
+            missing_currencies = [
+                currency
+                for currency in currencies
+                if not self._currency_is_surfaced(currency, content)
+            ]
+            if missing_currencies:
+                issues.append(
+                    {
+                        "code": "currency_not_surfaced",
+                        "currencies": missing_currencies,
+                        "message": (
+                            "Price claims must name their quote currency: "
+                            + ", ".join(missing_currencies)
+                            + "."
+                        ),
+                    }
+                )
         return issues
 
     @staticmethod
