@@ -51,13 +51,9 @@ RUN pip install --no-cache-dir --require-hashes -r requirements-channels-lock.tx
 # above; without it pip re-resolves and downloads unhashed wheels.
 COPY pyproject.toml LICENSE README.md ./
 COPY agent/ agent/
-<<<<<<< HEAD
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir --no-deps -e .
 RUN pip install --no-cache-dir -e '.[feishu]'
 RUN pip install --no-cache-dir bcrypt
-=======
-RUN pip install --no-cache-dir --no-deps -e .
->>>>>>> main
 
 # ============================================================================
 # Stage 3: Runtime — carries the prebuilt venv only, no compilers/dev headers.
