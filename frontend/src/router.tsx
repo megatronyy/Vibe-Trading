@@ -29,12 +29,17 @@ const Correlation = lazy(() =>
 const AlphaZoo = lazy(() =>
   import("@/pages/AlphaZoo").then((m) => ({ default: m.AlphaZoo })),
 );
+
 const Login = lazy(() => import("@/pages/Login"));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   if (!isLoggedIn()) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
+
+const OptionsLab = lazy(() =>
+  import("@/pages/OptionsLab").then((m) => ({ default: m.OptionsLab })),
+);
 
 function PageLoader() {
   return (
@@ -59,18 +64,19 @@ export const router = createBrowserRouter([
     children: [
       { path: "/", element: <RequireAuth>{wrap(Agent)}</RequireAuth> },
       { path: "/about", element: wrap(Home) },
-      { path: "/agent", element: <RequireAuth>{wrap(Agent)}</RequireAuth> },
-      { path: "/runtime", element: <RequireAuth>{wrap(Runtime)}</RequireAuth> },
-      { path: "/scheduled", element: <RequireAuth>{wrap(Scheduled)}</RequireAuth> },
-      { path: "/reports", element: <RequireAuth>{wrap(Reports)}</RequireAuth> },
-      { path: "/settings", element: <RequireAuth>{wrap(Settings)}</RequireAuth> },
-      { path: "/runs/:runId", element: <RequireAuth>{wrap(RunDetail)}</RequireAuth> },
-      { path: "/compare", element: <RequireAuth>{wrap(Compare)}</RequireAuth> },
-      { path: "/correlation", element: <RequireAuth>{wrap(Correlation)}</RequireAuth> },
-      { path: "/alpha-zoo", element: <RequireAuth>{wrap(AlphaZoo)}</RequireAuth> },
-      { path: "/alpha-zoo/bench", element: <RequireAuth>{wrap(AlphaZoo)}</RequireAuth> },
-      { path: "/alpha-zoo/compare", element: <RequireAuth>{wrap(AlphaZoo)}</RequireAuth> },
-      { path: "/alpha-zoo/:alphaId", element: <RequireAuth>{wrap(AlphaZoo)}</RequireAuth> },
+      { path: "/agent", element: wrap(Agent) },
+      { path: "/runtime", element: wrap(Runtime) },
+      { path: "/scheduled", element: wrap(Scheduled) },
+      { path: "/reports", element: wrap(Reports) },
+      { path: "/settings", element: wrap(Settings) },
+      { path: "/runs/:runId", element: wrap(RunDetail) },
+      { path: "/compare", element: wrap(Compare) },
+      { path: "/correlation", element: wrap(Correlation) },
+      { path: "/options", element: wrap(OptionsLab) },
+      { path: "/alpha-zoo", element: wrap(AlphaZoo) },
+      { path: "/alpha-zoo/bench", element: wrap(AlphaZoo) },
+      { path: "/alpha-zoo/compare", element: wrap(AlphaZoo) },
+      { path: "/alpha-zoo/:alphaId", element: wrap(AlphaZoo) },
     ],
   },
 ]);
