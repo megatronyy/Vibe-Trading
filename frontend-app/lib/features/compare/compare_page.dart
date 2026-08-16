@@ -152,6 +152,46 @@ class _ComparePageState extends ConsumerState<ComparePage> {
         belowBarData: BarAreaData(show: false),
       );
 
+  /// Localized label for a canonical compare metric (raw keys like
+  /// `total_return` must never reach the UI).
+  String _metricLabel(String key) {
+    final l = AppLocalizations.of(context)!;
+    switch (key) {
+      case 'total_return':
+        return l.metricTotalReturn;
+      case 'annual_return':
+        return l.metricAnnual;
+      case 'sharpe':
+        return l.metricSharpe;
+      case 'calmar_ratio':
+        return l.metricCalmar;
+      case 'sortino_ratio':
+        return l.metricSortino;
+      case 'max_drawdown':
+        return l.metricMaxDD;
+      case 'volatility':
+        return l.metricVolatility;
+      case 'win_rate':
+        return l.metricWinRate;
+      case 'profit_factor':
+        return l.metricProfitFactor;
+      case 'avg_win':
+        return l.metricAvgWin;
+      case 'avg_loss':
+        return l.metricAvgLoss;
+      case 'trade_count':
+        return l.metricTrades;
+      case 'max_consecutive_losses':
+        return l.metricMaxConsecLosses;
+      case 'exposure_time':
+        return l.metricExposureTime;
+      case 'avg_holding_period':
+        return l.metricAvgHolding;
+      default:
+        return key;
+    }
+  }
+
   Widget _metricCard(String key, String unit) {
     final l = _leftRun?.metrics?[key];
     final r = _rightRun?.metrics?[key];
@@ -172,7 +212,7 @@ class _ComparePageState extends ConsumerState<ComparePage> {
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(children: [
-          Expanded(child: Text(key, style: const TextStyle(fontSize: 13))),
+          Expanded(child: Text(_metricLabel(key), style: const TextStyle(fontSize: 13))),
           SizedBox(width: 60, child: Text(fmt(l), textAlign: TextAlign.center, style: const TextStyle(fontFamily: 'monospace'))),
           SizedBox(width: 60, child: Text(fmt(r), textAlign: TextAlign.center, style: const TextStyle(fontFamily: 'monospace'))),
           SizedBox(

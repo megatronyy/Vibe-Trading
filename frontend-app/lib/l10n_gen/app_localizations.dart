@@ -107,7 +107,7 @@ abstract class AppLocalizations {
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:
-  /// **'AI Trading'**
+  /// **'灵策AI'**
   String get appTitle;
 
   /// No description provided for @navAgent.
@@ -464,6 +464,30 @@ abstract class AppLocalizations {
   /// **'Analyze portfolio'**
   String get composerPortfolio;
 
+  /// No description provided for @promptDefineGoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Help me define a research goal.'**
+  String get promptDefineGoal;
+
+  /// No description provided for @promptContinueGoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue the active research goal.'**
+  String get promptContinueGoal;
+
+  /// No description provided for @promptSwarmTeam.
+  ///
+  /// In en, this message translates to:
+  /// **'[Swarm Team Mode] Use the swarm tool to assemble the best specialist team. Auto-select the most appropriate preset.'**
+  String get promptSwarmTeam;
+
+  /// No description provided for @promptCheckConnector.
+  ///
+  /// In en, this message translates to:
+  /// **'Check my broker connector status and report authorization, mandate, and runner state for each broker.'**
+  String get promptCheckConnector;
+
   /// No description provided for @liveActive.
   ///
   /// In en, this message translates to:
@@ -619,6 +643,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Trades'**
   String get metricTrades;
+
+  /// No description provided for @metricCalmar.
+  ///
+  /// In en, this message translates to:
+  /// **'Calmar'**
+  String get metricCalmar;
+
+  /// No description provided for @metricSortino.
+  ///
+  /// In en, this message translates to:
+  /// **'Sortino'**
+  String get metricSortino;
+
+  /// No description provided for @metricVolatility.
+  ///
+  /// In en, this message translates to:
+  /// **'Volatility'**
+  String get metricVolatility;
+
+  /// No description provided for @metricProfitFactor.
+  ///
+  /// In en, this message translates to:
+  /// **'Profit factor'**
+  String get metricProfitFactor;
+
+  /// No description provided for @metricAvgWin.
+  ///
+  /// In en, this message translates to:
+  /// **'Avg win'**
+  String get metricAvgWin;
+
+  /// No description provided for @metricAvgLoss.
+  ///
+  /// In en, this message translates to:
+  /// **'Avg loss'**
+  String get metricAvgLoss;
+
+  /// No description provided for @metricMaxConsecLosses.
+  ///
+  /// In en, this message translates to:
+  /// **'Max consecutive losses'**
+  String get metricMaxConsecLosses;
+
+  /// No description provided for @metricExposureTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Exposure time'**
+  String get metricExposureTime;
+
+  /// No description provided for @metricAvgHolding.
+  ///
+  /// In en, this message translates to:
+  /// **'Avg holding period'**
+  String get metricAvgHolding;
 
   /// No description provided for @noPriceData.
   ///

@@ -49,11 +49,20 @@ class GoalPanel extends StatelessWidget {
             style: const TextStyle(fontSize: 12),
           ),
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            ConstrainedBox(
+              // A long LLM-written objective (uncapped SelectableText) plus
+              // criteria can outgrow the space left once the composer /
+              // keyboard claim theirs — cap the sheet at 40% of the screen
+              // and scroll inside instead of overflowing the page column.
+              constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.4),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                   SelectableText(goal.objective,
                       style: theme.textTheme.bodyMedium),
                   const SizedBox(height: 8),
@@ -109,7 +118,9 @@ class GoalPanel extends StatelessWidget {
                                 foregroundColor: theme.colorScheme.error)),
                       ],
                     ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ],

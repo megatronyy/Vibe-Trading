@@ -9,7 +9,7 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get appTitle => 'AI Trading';
+  String get appTitle => '灵策AI';
 
   @override
   String get navAgent => '会话';
@@ -138,7 +138,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsClear => '清除已存凭据';
 
   @override
-  String get settingsThemeSystem => '跟随系统';
+  String get settingsThemeSystem => '系统';
 
   @override
   String get settingsThemeLight => '浅色';
@@ -189,6 +189,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get composerPortfolio => '分析组合';
+
+  @override
+  String get promptDefineGoal => '帮我定义一个研究目标。';
+
+  @override
+  String get promptContinueGoal => '继续当前的研究目标。';
+
+  @override
+  String get promptSwarmTeam => '[智能体团队模式] 使用 swarm 工具组建最佳专家团队，自动选择最合适的预设。';
+
+  @override
+  String get promptCheckConnector => '检查我的交易连接器状态，报告每个券商的授权、交易授权和 Runner 状态。';
 
   @override
   String get liveActive => '实盘运行中';
@@ -271,6 +283,33 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get metricTrades => '交易数';
+
+  @override
+  String get metricCalmar => '卡玛比率';
+
+  @override
+  String get metricSortino => '索提诺比率';
+
+  @override
+  String get metricVolatility => '波动率';
+
+  @override
+  String get metricProfitFactor => '盈利因子';
+
+  @override
+  String get metricAvgWin => '平均盈利';
+
+  @override
+  String get metricAvgLoss => '平均亏损';
+
+  @override
+  String get metricMaxConsecLosses => '最大连亏';
+
+  @override
+  String get metricExposureTime => '持仓时间占比';
+
+  @override
+  String get metricAvgHolding => '平均持仓周期';
 
   @override
   String get noPriceData => '无价格数据';

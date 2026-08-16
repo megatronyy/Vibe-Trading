@@ -198,10 +198,17 @@ class _AgentPageState extends ConsumerState<AgentPage> {
                       ? WelcomeScreen(onPick: _pickExample)
                       : _timeline(context, messages, swarmRuns, hasTrailing),
                 ),
-                if (goal != null)
+                // Hide the goal sheet while the soft keyboard is up — it
+                // reappears when the keyboard drops. A pinned panel plus
+                // keyboard plus composer can exceed the shrunken body and
+                // overflow the column; giving the keyboard its space back
+                // guarantees the fixed bottom section always fits.
+                if (goal != null &&
+                    MediaQuery.viewInsetsOf(context).bottom == 0)
                   GoalPanel(
                     goal: goal,
-                    onContinue: () => _send('Continue the active research goal.'),
+                    onContinue: () =>
+                        _send(AppLocalizations.of(context)!.promptContinueGoal),
                     onEditObjective: _editObjective,
                     onCancel: _cancelGoal,
                   ),
@@ -211,13 +218,12 @@ class _AgentPageState extends ConsumerState<AgentPage> {
                   controller: _inputCtrl,
                   onSend: _send,
                   onMenuUpload: _uploadFile,
-                  onMenuGoal: () => _send('Help me define a research goal.'),
-                  onMenuSwarm: () => _send(
-                      '[Swarm Team Mode] Use the swarm tool to assemble the best '
-                      'specialist team. Auto-select the most appropriate preset.'),
-                  onMenuConnector: () => _send(
-                      'Check my broker connector status and report authorization, '
-                      'mandate, and runner state for each broker.'),
+                  onMenuGoal: () =>
+                    _send(AppLocalizations.of(context)!.promptDefineGoal),
+                  onMenuSwarm: () =>
+                      _send(AppLocalizations.of(context)!.promptSwarmTeam),
+                  onMenuConnector: () =>
+                      _send(AppLocalizations.of(context)!.promptCheckConnector),
                   isStreaming: streaming,
                   onStop: () => ref.read(agentProvider.notifier).cancelGeneration(),
                   onHalt: () => ref.read(agentProvider.notifier).haltLive(),
@@ -257,32 +263,39 @@ class _AgentPageState extends ConsumerState<AgentPage> {
   Widget _timeline(BuildContext context, List<AgentMessage> msgs,
       Map<String, SwarmRunStatus> swarmRuns, bool hasTrailing) {
     final entries = _groupEntries(msgs);
-    return ListView.builder(
-      controller: _scroll,
-      padding: const EdgeInsets.only(bottom: 12),
-      // +1 trailing slot (thinking spinner / streamed text) so both live in
-      // the scrollable timeline like before — but rebuilt independently via
-      // their own provider subscription.
-      itemCount: entries.length + (hasTrailing ? 1 : 0),
-      itemBuilder: (_, idx) {
-        if (idx >= entries.length) {
-          return const _TrailingStreamSlot();
-        }
-        final e = entries[idx];
-        if (e is List<AgentMessage>) {
+    return Listener(
+      // Tapping (or dragging) the conversation drops the keyboard — it only
+      // comes back when the composer input itself is tapped. A raw pointer
+      // listener rather than a gesture detector, so presses that land on
+      // child gestures (selectable text, links, table rows) still dismiss.
+      onPointerDown: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+      child: ListView.builder(
+        controller: _scroll,
+        padding: const EdgeInsets.only(bottom: 12),
+        // +1 trailing slot (thinking spinner / streamed text) so both live in
+        // the scrollable timeline like before — but rebuilt independently via
+        // their own provider subscription.
+        itemCount: entries.length + (hasTrailing ? 1 : 0),
+        itemBuilder: (_, idx) {
+          if (idx >= entries.length) {
+            return const _TrailingStreamSlot();
+          }
+          final e = entries[idx];
+          if (e is List<AgentMessage>) {
+            return Padding(
+              key: ValueKey('grp-${e.first.id}'),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: ThinkingTimeline(steps: e),
+            );
+          }
+          final m = e as AgentMessage;
           return Padding(
-            key: ValueKey('grp-${e.first.id}'),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: ThinkingTimeline(steps: e),
+            key: ValueKey('msg-${m.id}'),
+            padding: const EdgeInsets.only(left: 12, right: 12, top: 8, bottom: 4),
+            child: _itemFor(m, msgs, swarmRuns),
           );
-        }
-        final m = e as AgentMessage;
-        return Padding(
-          key: ValueKey('msg-${m.id}'),
-          padding: const EdgeInsets.only(left: 12, right: 12, top: 8, bottom: 4),
-          child: _itemFor(m, msgs, swarmRuns),
-        );
-      },
+        },
+      ),
     );
   }
 
@@ -528,7 +541,9 @@ class _AgentPageState extends ConsumerState<AgentPage> {
   Future<void> _exportChat() async {
     final state = ref.read(agentProvider);
     final buf = StringBuffer()
-      ..writeln('# Vibe-Trading chat — ${state.sessionId ?? ""}\n');
+      // Product name, not the internal repo name — the shared file is
+      // user-facing.
+      ..writeln('# ${AppLocalizations.of(context)!.appTitle} chat — ${state.sessionId ?? ""}\n');
     for (final m in state.messages) {
       switch (m.type) {
         case AgentMessageType.user:

@@ -91,7 +91,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _registerMode ? '注册一个新账号开始使用' : '登录你的 AI Trading 账号',
+                        _registerMode ? '注册一个新账号开始使用' : '登录你的灵策AI账号',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: scheme.onSurface.withValues(alpha: 0.6),
                             ),
@@ -169,7 +169,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 }
 
-/// Brand gradient header with app icon and "AI Trading" title.
+/// Brand gradient header with app icon and "灵策AI" title.
 class _Header extends StatelessWidget {
   const _Header({required this.brand, required this.isDark});
   final Color brand;
@@ -209,7 +209,7 @@ class _Header extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Text(
-            'AI Trading',
+            '灵策AI',
             style: TextStyle(
               color: Colors.white,
               fontSize: 26,

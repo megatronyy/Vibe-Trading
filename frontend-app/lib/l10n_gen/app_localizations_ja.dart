@@ -9,7 +9,7 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
-  String get appTitle => 'AI Trading';
+  String get appTitle => '灵策AI';
 
   @override
   String get navAgent => 'エージェント';
@@ -191,6 +191,20 @@ class AppLocalizationsJa extends AppLocalizations {
   String get composerPortfolio => 'Analyze portfolio';
 
   @override
+  String get promptDefineGoal => 'Help me define a research goal.';
+
+  @override
+  String get promptContinueGoal => 'Continue the active research goal.';
+
+  @override
+  String get promptSwarmTeam =>
+      '[Swarm Team Mode] Use the swarm tool to assemble the best specialist team. Auto-select the most appropriate preset.';
+
+  @override
+  String get promptCheckConnector =>
+      'Check my broker connector status and report authorization, mandate, and runner state for each broker.';
+
+  @override
   String get liveActive => 'Live runtime active';
 
   @override
@@ -271,6 +285,33 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get metricTrades => 'Trades';
+
+  @override
+  String get metricCalmar => 'Calmar';
+
+  @override
+  String get metricSortino => 'Sortino';
+
+  @override
+  String get metricVolatility => 'Volatility';
+
+  @override
+  String get metricProfitFactor => 'Profit factor';
+
+  @override
+  String get metricAvgWin => 'Avg win';
+
+  @override
+  String get metricAvgLoss => 'Avg loss';
+
+  @override
+  String get metricMaxConsecLosses => 'Max consecutive losses';
+
+  @override
+  String get metricExposureTime => 'Exposure time';
+
+  @override
+  String get metricAvgHolding => 'Avg holding period';
 
   @override
   String get noPriceData => 'No price data';
