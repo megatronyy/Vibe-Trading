@@ -175,6 +175,9 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
+  String get reasoningProviderDefault => 'Provider default';
+
+  @override
   String get composerUpload => 'Upload document';
 
   @override
@@ -499,6 +502,9 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get doubleConfirmBody =>
       'No biometrics available. Submit this mandate profile?';
+
+  @override
+  String get mandateCommitFailed => 'Mandate commit failed — please retry.';
 
   @override
   String get swarmAgents => 'agents';

@@ -10,6 +10,7 @@ import '../net/api.dart';
 import '../net/api_client.dart';
 import '../net/api_error.dart';
 import '../net/sse_client.dart';
+import 'auth_provider.dart';
 
 enum SseStatus { disconnected, connected, reconnecting }
 
@@ -69,6 +70,8 @@ class AgentState {
     String? error,
     bool clearError = false,
     bool clearMandate = false,
+    bool clearGoal = false,
+    bool clearSwarmRuns = false,
   }) =>
       AgentState(
         sessionId: sessionId ?? this.sessionId,
@@ -79,10 +82,10 @@ class AgentState {
         sseStatus: sseStatus ?? this.sseStatus,
         sessions: sessions ?? this.sessions,
         sessionLoading: sessionLoading ?? this.sessionLoading,
-        goal: goal ?? this.goal,
+        goal: clearGoal ? null : (goal ?? this.goal),
         liveStatus: liveStatus ?? this.liveStatus,
         liveActive: liveActive ?? this.liveActive,
-        swarmRuns: swarmRuns ?? this.swarmRuns,
+        swarmRuns: clearSwarmRuns ? const {} : (swarmRuns ?? this.swarmRuns),
         pendingMandate: clearMandate ? null : (pendingMandate ?? this.pendingMandate),
         error: clearError ? null : (error ?? this.error),
       );
@@ -107,6 +110,20 @@ class AgentNotifier extends Notifier<AgentState> {
   @override
   AgentState build() {
     ref.onDispose(_dispose);
+    // Auth lifecycle: on logout drop EVERYTHING session-scoped (SSE stream,
+    // 15s live poller, messages, goal, pending mandate) so the next account
+    // starts clean and no 401 polling keeps running in the background. On
+    // re-login with a session still open, the old SSE (killed by the 401)
+    // is re-established.
+    ref.listen(authProvider, (prev, next) {
+      if (next.isLoggedIn == prev?.isLoggedIn) return;
+      if (!next.isLoggedIn) {
+        _teardown();
+      } else if (state.sessionId != null) {
+        _subscribe(state.sessionId!);
+        _ensureLivePolling();
+      }
+    });
     return const AgentState();
   }
 
@@ -155,8 +172,12 @@ class AgentNotifier extends Notifier<AgentState> {
 
   Future<void> loadSession(String sid) async {
     _disposeStream();
+    // Clear session-scoped privileged state (goal / swarm runs / pending
+    // mandate) — the target session may not have any, and copyWith alone
+    // cannot null these fields out.
     state = state.copyWith(
-        sessionId: sid, sessionLoading: true, streaming: false, streamingText: '', clearError: true);
+        sessionId: sid, sessionLoading: true, streaming: false, streamingText: '',
+        clearError: true, clearGoal: true, clearSwarmRuns: true, clearMandate: true);
     _liveTools.clear();
     try {
       final history = await _api.getSessionMessages(sid);
@@ -245,7 +266,12 @@ class AgentNotifier extends Notifier<AgentState> {
     try {
       await _api.cancelSession(sid);
     } catch (_) {}
-    state = state.copyWith(streaming: false);
+    // Local immediate feedback; the attempt.cancelled SSE event does the
+    // authoritative cleanup (and covers cancels from other surfaces).
+    _liveTools.clear();
+    _flushLiveTools();
+    state = state.copyWith(
+        streaming: false, reasoningActive: false, streamingText: '');
   }
 
   Future<void> haltLive({String? reason}) async {
@@ -289,7 +315,9 @@ class AgentNotifier extends Notifier<AgentState> {
   /// Privileged: submit a mandate commit. The caller (MandateProposalCard)
   /// MUST have already obtained biometric confirmation — this sends
   /// `consent_ack: true` and clears the pending proposal on success.
-  Future<void> commitMandate(String proposalId, Map<String, dynamic> profile) async {
+  /// Returns whether the commit succeeded; on failure the pending proposal
+  /// is KEPT so the user can retry.
+  Future<bool> commitMandate(String proposalId, Map<String, dynamic> profile) async {
     try {
       await _api.commitMandate({
         'proposal_id': proposalId,
@@ -299,8 +327,13 @@ class AgentNotifier extends Notifier<AgentState> {
       state = state.copyWith(clearMandate: true);
     } on ApiException catch (e) {
       state = state.copyWith(error: e.message);
+      return false;
+    } catch (e) {
+      state = state.copyWith(error: e.toString());
+      return false;
     }
     await pollLiveStatus();
+    return true;
   }
 
   /// Dismiss a pending mandate without committing.
@@ -311,9 +344,17 @@ class AgentNotifier extends Notifier<AgentState> {
   void _subscribe(String sid) {
     _disposeStream();
     final url = _api.sessionEventsUrl(sid, replayActive: true);
-    _sse = SseClient(dio: _dio, url: url);
+    _sse = SseClient(
+      dio: _dio,
+      url: url,
+      // On a 401 the local expiry may be stale — try one unconditional
+      // refresh; if that fails the auth notifier logs out (and the listener
+      // in build() tears this stream down).
+      onAuthError: () => ref.read(authProvider.notifier).forceRefresh(),
+    );
     _sub = _sse!.connect().listen(_dispatch, onError: (Object e) {
-      state = state.copyWith(sseStatus: SseStatus.reconnecting);
+      // Terminal auth failure (recovery already attempted inside SseClient).
+      state = state.copyWith(sseStatus: SseStatus.disconnected);
     });
   }
 
@@ -412,6 +453,19 @@ class AgentNotifier extends Notifier<AgentState> {
           _maybeAttachRunCard();
         }
         break;
+      case 'attempt.cancelled':
+        // Terminal like completed/failed, but user-initiated (possibly from
+        // another surface): stop streaming and discard the partial output
+        // rather than archiving it as an answer/error (React parity:
+        // clearStreamingSession).
+        _liveTools.clear();
+        _flushLiveTools();
+        state = state.copyWith(
+          streaming: false,
+          reasoningActive: false,
+          streamingText: '',
+        );
+        break;
       case 'message.received':
         _onMessageReceived(d);
         break;
@@ -436,6 +490,18 @@ class AgentNotifier extends Notifier<AgentState> {
         // No UI state change required.
         break;
       case 'goal.created':
+        // The created payload only carries the bare goal object (no
+        // criteria/evidence counts) — refetch the full snapshot, matching the
+        // React client's loadGoalSnapshot on this event.
+        final sidAtCreate = state.sessionId;
+        if (sidAtCreate != null) {
+          _safeGetGoal(sidAtCreate).then((g) {
+            if (g != null && state.sessionId == sidAtCreate) {
+              state = state.copyWith(goal: g);
+            }
+          });
+        }
+        break;
       case 'goal.updated':
         final snap = d['snapshot'] as Map<String, dynamic>? ??
             (d['goal'] != null ? <String, dynamic>{'goal': d['goal']} : null);
@@ -445,9 +511,12 @@ class AgentNotifier extends Notifier<AgentState> {
         break;
       case 'goal.evidence':
         // Re-fetch the snapshot to get updated evidence/criteria counts.
-        if (state.sessionId != null) {
-          _safeGetGoal(state.sessionId).then((g) {
-            if (g != null) state = state.copyWith(goal: g);
+        final sidAtEvidence = state.sessionId;
+        if (sidAtEvidence != null) {
+          _safeGetGoal(sidAtEvidence).then((g) {
+            if (g != null && state.sessionId == sidAtEvidence) {
+              state = state.copyWith(goal: g);
+            }
           });
         }
         break;
@@ -542,6 +611,9 @@ class AgentNotifier extends Notifier<AgentState> {
     String? error,
     String? runDir,
   }) {
+    // Any terminal event retires the running-tools strip.
+    _liveTools.clear();
+    _flushLiveTools();
     // On success, finalize the streamed text (or the summary) as the assistant
     // answer — React parity: attempt.completed itself adds the final answer.
     if (ok && !_answerFinalized) {
@@ -718,6 +790,19 @@ class AgentNotifier extends Notifier<AgentState> {
   }
 
   // --- teardown ----------------------------------------------------------
+
+  /// Full teardown for logout: stop the SSE stream AND the live-status
+  /// poller, drop all session-scoped state. Distinct from [_dispose] (provider
+  /// disposal) — the notifier stays alive and reusable for the next login.
+  void _teardown() {
+    _disposeStream();
+    _liveTimer?.cancel();
+    _liveTimer = null;
+    _liveTools.clear();
+    _flushLiveTools();
+    _answerFinalized = false;
+    state = const AgentState();
+  }
 
   void _disposeStream() {
     _sub?.cancel();

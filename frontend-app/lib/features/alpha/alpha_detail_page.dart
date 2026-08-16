@@ -30,14 +30,20 @@ class _AlphaDetailPageState extends ConsumerState<AlphaDetailPage> {
 
   Future<void> _load() async {
     try {
-      _alpha = await ref.read(apiProvider).getAlpha(widget.alphaId);
-      setState(() => _loading = false);
+      final alpha = await ref.read(apiProvider).getAlpha(widget.alphaId);
+      if (!mounted) return;
+      setState(() {
+        _alpha = alpha;
+        _loading = false;
+      });
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.message;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = 'Failed: $e';

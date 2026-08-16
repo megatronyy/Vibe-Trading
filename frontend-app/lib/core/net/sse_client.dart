@@ -40,12 +40,19 @@ class SseClient {
     required this.url,
     this.extraHeaders = const {},
     this.maxSeenIds = 1024,
+    this.onAuthError,
   });
 
   final Dio dio;
   final String url;
   final Map<String, String> extraHeaders;
   final int maxSeenIds;
+
+  /// Invoked when the stream gets a 401/403. Return true to keep the
+  /// reconnect loop alive (e.g. the JWT was refreshed and a retry might
+  /// succeed); return false or throw to stop permanently. Without a callback
+  /// auth errors are terminal.
+  final Future<bool> Function()? onAuthError;
 
   StreamController<SseEvent>? _ctl;
   String? _lastEventId;
@@ -68,9 +75,14 @@ class SseClient {
         _backoffMs = 1000; // clean close → reset
       } on ApiException catch (e) {
         if (e.isAuthRequired) {
-          // Retrying won't help without a new key — surface once and stop.
-          _ctl?.addError(e);
-          break;
+          final recovered = await _tryRecoverAuth();
+          if (!recovered) {
+            // Retrying won't help without new credentials — surface once and
+            // stop.
+            _ctl?.addError(e);
+            break;
+          }
+          // Token was refreshed — fall through to backoff + retry.
         }
         if (_disposed) break;
       } catch (_) {
@@ -79,6 +91,16 @@ class SseClient {
       if (_disposed) break;
       _backoffMs = min(_backoffMs * 2, 30000);
       await Future.delayed(Duration(milliseconds: _backoffMs));
+    }
+  }
+
+  Future<bool> _tryRecoverAuth() async {
+    final cb = onAuthError;
+    if (cb == null) return false;
+    try {
+      return await cb();
+    } catch (_) {
+      return false;
     }
   }
 

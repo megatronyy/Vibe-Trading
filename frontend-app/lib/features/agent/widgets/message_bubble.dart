@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../core/models/agent_message.dart';
+import '../../../core/util/markdown_content.dart';
 
 /// Renders a user / answer / error message with polished mobile layout.
 /// Tool, thinking, swarm and run-complete entries have their own widgets.
@@ -95,49 +95,10 @@ class MessageBubble extends StatelessWidget {
           ),
           child: Icon(Icons.auto_awesome, size: 16, color: theme.colorScheme.primary),
         ),
-        // Content
+        // Content — GFM markdown (tables, strikethrough) + LaTeX math,
+        // mirroring the web MarkdownContent pipeline.
         Expanded(
-          child: MarkdownBody(
-            data: message.content,
-            selectable: true,
-            styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-              p: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
-              h1: theme.textTheme.titleLarge?.copyWith(height: 1.4),
-              h2: theme.textTheme.titleMedium?.copyWith(height: 1.4),
-              h3: theme.textTheme.titleSmall?.copyWith(height: 1.4),
-              code: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 13,
-                height: 1.4,
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              ),
-              codeblockDecoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant,
-                  width: 0.5,
-                ),
-              ),
-              blockquoteDecoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(8),
-                border: Border(
-                  left: BorderSide(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                    width: 3,
-                  ),
-                ),
-              ),
-              tableHead: TextStyle(fontWeight: FontWeight.w600),
-              tableBorder: TableBorder.all(
-                color: theme.colorScheme.outlineVariant,
-                width: 0.5,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              listIndent: 24,
-            ),
-          ),
+          child: MarkdownContent(content: message.content),
         ),
       ],
     );

@@ -58,6 +58,7 @@
   "retries": "重试",
   "tushareToken": "Tushare 令牌",
   "reasoningLabel": "推理: {effort}",
+  "reasoningProviderDefault": "跟随供应商默认",
 
   "composerUpload": "上传文档",
   "composerGoal": "研究目标",
@@ -172,6 +173,7 @@
   "noProfiles": "提案中无方案",
   "doubleConfirmTitle": "确认授权",
   "doubleConfirmBody": "无可用生物识别。是否提交该授权方案？",
+  "mandateCommitFailed": "授权提交失败，请重试。",
 
   "swarmAgents": "智能体",
   "swarmWaiting": "等待事件…",

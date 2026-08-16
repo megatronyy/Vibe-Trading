@@ -30,11 +30,20 @@ class _ShadowReportPageState extends ConsumerState<ShadowReportPage> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(NavigationDelegate(
-        onPageFinished: (_) => setState(() => _loading = false),
-        onWebResourceError: (e) => setState(() {
-          _loading = false;
-          _error = e.description;
-        }),
+        onPageFinished: (_) {
+          if (mounted) setState(() => _loading = false);
+        },
+        onWebResourceError: (e) {
+          if (!mounted) return;
+          // Sub-resource failures (favicon / CSS / images / auth-gated
+          // assets) must not blank the whole report — only main-frame
+          // errors are page-fatal.
+          if (e.isForMainFrame != true) return;
+          setState(() {
+            _loading = false;
+            _error = e.description;
+          });
+        },
       ))
       ..loadRequest(
         Uri.parse(url),

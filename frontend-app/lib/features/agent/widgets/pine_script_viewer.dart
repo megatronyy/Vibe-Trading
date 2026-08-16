@@ -41,12 +41,14 @@ class _PineScreenState extends State<_PineScreen> {
   Future<void> _load() async {
     try {
       final code = await widget.api.getRunPine(widget.runId);
+      if (!mounted) return;
       setState(() {
         _code = code;
         _loading = false;
         if (code == null || code.isEmpty) _error = 'No Pine Script for this run.';
       });
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.message;

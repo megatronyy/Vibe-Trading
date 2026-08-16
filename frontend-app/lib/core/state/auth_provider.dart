@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../net/api.dart';
@@ -63,7 +65,24 @@ class AuthResult {
 /// token on every authenticated request.
 class AuthNotifier extends Notifier<AuthState> {
   @override
-  AuthState build() => const AuthState();
+  AuthState build() {
+    // Bridges for the dio interceptor (which cannot read this provider
+    // without a dependency cycle): persist + adopt a refreshed token, and
+    // force logout when even /auth/refresh cannot recover the session.
+    onJwtRefreshed = (response) {
+      // Fire-and-forget: the interceptor has already set `currentJwt`, so
+      // requests proceed with the new token while we persist + update state.
+      unawaited(_applyAuthResponse(response));
+    };
+    onAuthSessionExpired = () {
+      logout();
+    };
+    ref.onDispose(() {
+      onJwtRefreshed = null;
+      onAuthSessionExpired = null;
+    });
+    return const AuthState();
+  }
 
   Api get _api => ref.read(apiProvider);
 
@@ -108,6 +127,8 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   /// Persist a /auth/login | /auth/refresh response and flip to logged-in.
+  /// Also used (via the [onJwtRefreshed] hook) for interceptor-driven
+  /// refreshes.
   Future<void> _applyAuthResponse(Map<String, dynamic> r) async {
     final jwt = r['jwt'] as String?;
     final exp = r['expires_at'] as String?;
@@ -148,11 +169,23 @@ class AuthNotifier extends Notifier<AuthState> {
     final exp = s.jwtExp;
     final expired = exp == null || _isExpired(exp);
     if (!expired) return;
+    await forceRefresh();
+  }
+
+  /// Unconditional POST /auth/refresh — used when the backend rejects a token
+  /// the client still believes is valid (local expiry stale, server-side
+  /// rotation, …). Returns whether the token was replaced; triggers [logout]
+  /// when refresh itself fails so the user lands on /login instead of a
+  /// dead stream.
+  Future<bool> forceRefresh() async {
+    if (!state.isLoggedIn) return false;
     try {
       final r = await _api.refreshAuth();
       await _applyAuthResponse(r);
+      return true;
     } catch (_) {
       await logout();
+      return false;
     }
   }
 

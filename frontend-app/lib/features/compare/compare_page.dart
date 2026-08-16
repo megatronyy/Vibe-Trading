@@ -44,6 +44,7 @@ class _ComparePageState extends ConsumerState<ComparePage> {
     final api = ref.read(apiProvider);
     try {
       final runs = await api.listRuns(100);
+      if (!mounted) return;
       setState(() {
         _runs = runs;
         if (runs.isNotEmpty) _left = runs.first.id;
@@ -51,7 +52,7 @@ class _ComparePageState extends ConsumerState<ComparePage> {
       });
       if (_left != null && _right != null) _compare();
     } on ApiException catch (e) {
-      _toast(e.message);
+      if (mounted) _toast(e.message);
     }
   }
 
@@ -64,19 +65,23 @@ class _ComparePageState extends ConsumerState<ComparePage> {
         api.getRun(_left!),
         api.getRun(_right!),
       ]);
+      if (!mounted) return;
       setState(() {
         _leftRun = results[0];
         _rightRun = results[1];
         _loading = false;
       });
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
       _toast(e.message);
     }
   }
 
-  void _toast(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   @override
   Widget build(BuildContext context) {

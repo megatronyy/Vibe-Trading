@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/util/share_file.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/util/markdown_content.dart';
 import '../../core/state/auth_provider.dart';
 import '../../core/models/agent_message.dart';
 import '../../core/net/api.dart';
@@ -37,6 +40,10 @@ class _AgentPageState extends ConsumerState<AgentPage> {
   final _inputCtrl = TextEditingController();
   final _inputFocus = FocusNode();
   bool _nearBottom = true;
+  // Trailing-edge throttle for streaming auto-scroll: one animateTo per tick
+  // instead of one per text_delta token.
+  Timer? _jumpTimer;
+  bool _jumpScheduled = false;
 
   @override
   void initState() {
@@ -66,6 +73,7 @@ class _AgentPageState extends ConsumerState<AgentPage> {
 
   @override
   void dispose() {
+    _jumpTimer?.cancel();
     _scroll.dispose();
     _inputCtrl.dispose();
     _inputFocus.dispose();
@@ -81,15 +89,40 @@ class _AgentPageState extends ConsumerState<AgentPage> {
     });
   }
 
+  /// Coalesce streaming auto-scrolls to ~4/s; the last delta in the window
+  /// still lands at the bottom.
+  void _scheduleJump() {
+    if (_jumpScheduled) return;
+    _jumpScheduled = true;
+    _jumpTimer = Timer(const Duration(milliseconds: 250), () {
+      _jumpScheduled = false;
+      if (mounted && _nearBottom) _jumpToBottom();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(agentProvider);
+    // Fine-grained subscriptions: a text_delta only changes `streamingText`,
+    // which is watched exclusively by the trailing _TrailingStreamSlot — so a
+    // streaming token rebuilds one bubble, not the AppBar / goal panel /
+    // composer / entire history.
+    final messages = ref.watch(agentProvider.select((s) => s.messages));
+    final swarmRuns = ref.watch(agentProvider.select((s) => s.swarmRuns));
+    final goal = ref.watch(agentProvider.select((s) => s.goal));
+    final streaming = ref.watch(agentProvider.select((s) => s.streaming));
+    final liveActive = ref.watch(agentProvider.select((s) => s.liveActive));
+    final sseStatus = ref.watch(agentProvider.select((s) => s.sseStatus));
+    final timelineEmpty = ref.watch(
+        agentProvider.select((s) => s.messages.isEmpty && s.streamingText.isEmpty));
+    final hasTrailing = ref.watch(agentProvider.select((s) =>
+        s.streamingText.isNotEmpty ||
+        (s.reasoningActive && s.streamingText.isEmpty)));
     final cfg = ref.watch(appConfigProvider);
     ref.listen<AgentState>(agentProvider, (prev, next) {
       final grew = prev == null ||
           next.messages.length != prev.messages.length ||
           next.streamingText != prev.streamingText;
-      if (grew && _nearBottom) _jumpToBottom();
+      if (grew) _scheduleJump();
       // Surface a mandate proposal as a biometric-gated full-screen sheet.
       if (prev?.pendingMandate == null && next.pendingMandate != null) {
         showMandateProposalSheet(context, ref, next.pendingMandate!);
@@ -126,7 +159,7 @@ class _AgentPageState extends ConsumerState<AgentPage> {
         leading: IconButton(
           icon: const Icon(Icons.list),
           tooltip: AppLocalizations.of(context)!.sessions,
-          onPressed: () => _showSessions(context, state),
+          onPressed: () => _showSessions(context),
         ),
         title: Text(AppLocalizations.of(context)!.agentTitle),
         actions: [
@@ -135,13 +168,13 @@ class _AgentPageState extends ConsumerState<AgentPage> {
             tooltip: AppLocalizations.of(context)!.newSession,
             onPressed: () => ref.read(agentProvider.notifier).resetToWelcome(),
           ),
-          if (state.messages.isNotEmpty)
+          if (messages.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.download_outlined),
               tooltip: AppLocalizations.of(context)!.exportChat,
               onPressed: _exportChat,
             ),
-          if (state.streaming)
+          if (streaming)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 10),
               child: SizedBox(
@@ -149,7 +182,7 @@ class _AgentPageState extends ConsumerState<AgentPage> {
             ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: Center(child: _Dot(status: state.sseStatus)),
+            child: Center(child: _Dot(status: sseStatus)),
           ),
         ],
       ),
@@ -161,19 +194,19 @@ class _AgentPageState extends ConsumerState<AgentPage> {
                   // React parity: the welcome / examples screen is the empty
                   // state (no messages yet), shown for a brand-new or cleared
                   // session — not only when there's no session at all.
-                  child: (state.messages.isEmpty && state.streamingText.isEmpty)
+                  child: timelineEmpty
                       ? WelcomeScreen(onPick: _pickExample)
-                      : _timeline(context, state),
+                      : _timeline(context, messages, swarmRuns, hasTrailing),
                 ),
-                if (state.goal != null)
+                if (goal != null)
                   GoalPanel(
-                    goal: state.goal!,
+                    goal: goal,
                     onContinue: () => _send('Continue the active research goal.'),
                     onEditObjective: _editObjective,
                     onCancel: _cancelGoal,
                   ),
                 _liveToolsStrip(),
-                if (state.streaming) _streamingPulseBar(context),
+                if (streaming) _streamingPulseBar(context),
                 Composer(
                   controller: _inputCtrl,
                   onSend: _send,
@@ -185,118 +218,90 @@ class _AgentPageState extends ConsumerState<AgentPage> {
                   onMenuConnector: () => _send(
                       'Check my broker connector status and report authorization, '
                       'mandate, and runner state for each broker.'),
-                  isStreaming: state.streaming,
+                  isStreaming: streaming,
                   onStop: () => ref.read(agentProvider.notifier).cancelGeneration(),
                   onHalt: () => ref.read(agentProvider.notifier).haltLive(),
-                  liveActive: state.liveActive,
+                  liveActive: liveActive,
                 ),
               ],
             ),
     );
   }
 
-  Widget _timeline(BuildContext context, AgentState state) {
-    final items = <Widget>[];
-    final msgs = state.messages;
+  /// Group consecutive folded (thinking/tool/compact) messages. Pure data —
+  /// cheap to recompute on message-list changes, no widget building here.
+  static bool _isFolded(AgentMessageType t) =>
+      t == AgentMessageType.thinking ||
+      t == AgentMessageType.toolCall ||
+      t == AgentMessageType.toolResult ||
+      t == AgentMessageType.compact;
+
+  List<Object> _groupEntries(List<AgentMessage> msgs) {
+    final entries = <Object>[]; // AgentMessage | List<AgentMessage> (group)
     int i = 0;
     while (i < msgs.length) {
-      final m = msgs[i];
-      if (m.type == AgentMessageType.thinking ||
-          m.type == AgentMessageType.toolCall ||
-          m.type == AgentMessageType.toolResult ||
-          m.type == AgentMessageType.compact) {
-        final group = <AgentMessage>[];
-        while (i < msgs.length &&
-            (msgs[i].type == AgentMessageType.thinking ||
-                msgs[i].type == AgentMessageType.toolCall ||
-                msgs[i].type == AgentMessageType.toolResult ||
-                msgs[i].type == AgentMessageType.compact)) {
-          group.add(msgs[i]);
+      if (_isFolded(msgs[i].type)) {
+        final start = i;
+        while (i < msgs.length && _isFolded(msgs[i].type)) {
           i++;
         }
-        items.add(Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: ThinkingTimeline(steps: group),
-        ));
+        entries.add(msgs.sublist(start, i));
       } else {
-        items.add(Padding(
-          padding: const EdgeInsets.only(left: 12, right: 12, top: 8, bottom: 4),
-          child: _itemFor(m, state),
-        ));
+        entries.add(msgs[i]);
         i++;
       }
     }
-    if (state.reasoningActive && state.streamingText.isEmpty) {
-      items.add(Padding(
-        padding: const EdgeInsets.only(left: 22, top: 8, bottom: 8),
-        child: Row(children: [
-          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-          const SizedBox(width: 10),
-          Text(AppLocalizations.of(context)!.agentThinking,
-              style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.outline)),
-        ]),
-      ));
-    }
-    // Streamed assistant text lives INSIDE the scrollable timeline (as the last
-    // item) so a long reply scrolls instead of overflowing the column.
-    if (state.streamingText.isNotEmpty) {
-      items.add(Padding(
-        padding: const EdgeInsets.only(left: 12, right: 12, top: 4, bottom: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              margin: const EdgeInsets.only(right: 10, top: 2),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
-                    Theme.of(context).colorScheme.secondary.withValues(alpha: 0.15),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.auto_awesome, size: 16,
-                  color: Theme.of(context).colorScheme.primary),
-            ),
-            Expanded(
-              child: SelectableText(
-                '${state.streamingText}▌',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
-              ),
-            ),
-          ],
-        ),
-      ));
-    }
+    return entries;
+  }
+
+  Widget _timeline(BuildContext context, List<AgentMessage> msgs,
+      Map<String, SwarmRunStatus> swarmRuns, bool hasTrailing) {
+    final entries = _groupEntries(msgs);
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.only(bottom: 12),
-      itemCount: items.length,
-      itemBuilder: (_, idx) => items[idx],
+      // +1 trailing slot (thinking spinner / streamed text) so both live in
+      // the scrollable timeline like before — but rebuilt independently via
+      // their own provider subscription.
+      itemCount: entries.length + (hasTrailing ? 1 : 0),
+      itemBuilder: (_, idx) {
+        if (idx >= entries.length) {
+          return const _TrailingStreamSlot();
+        }
+        final e = entries[idx];
+        if (e is List<AgentMessage>) {
+          return Padding(
+            key: ValueKey('grp-${e.first.id}'),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: ThinkingTimeline(steps: e),
+          );
+        }
+        final m = e as AgentMessage;
+        return Padding(
+          key: ValueKey('msg-${m.id}'),
+          padding: const EdgeInsets.only(left: 12, right: 12, top: 8, bottom: 4),
+          child: _itemFor(m, msgs, swarmRuns),
+        );
+      },
     );
   }
 
-  Widget _itemFor(AgentMessage m, AgentState state) {
+  Widget _itemFor(
+      AgentMessage m, List<AgentMessage> msgs, Map<String, SwarmRunStatus> swarmRuns) {
     switch (m.type) {
       case AgentMessageType.runComplete:
         return RunCompleteCard(message: m);
       case AgentMessageType.swarmStatus:
-        return SwarmStatusCard(
-            status: state.swarmRuns[m.swarmRunId] ?? m.swarmStatus);
+        return SwarmStatusCard(status: swarmRuns[m.swarmRunId] ?? m.swarmStatus);
       case AgentMessageType.liveAction:
         return LiveActionChip(message: m);
       case AgentMessageType.error:
         // Retry: re-send the user message that preceded this error.
-        final idx = state.messages.indexOf(m);
+        final idx = msgs.indexOf(m);
         String? prevUser;
         for (var j = idx - 1; j >= 0; j--) {
-          if (state.messages[j].type == AgentMessageType.user) {
-            prevUser = state.messages[j].content;
+          if (msgs[j].type == AgentMessageType.user) {
+            prevUser = msgs[j].content;
             break;
           }
         }
@@ -388,15 +393,17 @@ class _AgentPageState extends ConsumerState<AgentPage> {
         ],
       ),
     );
+    ctrl.dispose();
     if (result == null || result.isEmpty) return;
+    if (!mounted) return;
     final sid = ref.read(agentProvider).sessionId;
     if (sid == null) return;
     final api = ref.read(apiProvider);
     try {
       final updated = await api.updateGoal(sid, {'objective': result});
-      notifier.setGoal(updated);
+      if (mounted) notifier.setGoal(updated);
     } on ApiException catch (e) {
-      _toast(e.message);
+      if (mounted) _toast(e.message);
     }
   }
 
@@ -407,13 +414,13 @@ class _AgentPageState extends ConsumerState<AgentPage> {
     try {
       await api.updateGoalStatus(sid, 'cancelled');
       final g = await api.getGoal(sid);
-      ref.read(agentProvider.notifier).setGoal(g);
+      if (mounted) ref.read(agentProvider.notifier).setGoal(g);
     } on ApiException catch (e) {
-      _toast(e.message);
+      if (mounted) _toast(e.message);
     }
   }
 
-  void _showSessions(BuildContext context, AgentState state) {
+  void _showSessions(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
       builder: (_) => Consumer(builder: (ctx, ref, _) {
@@ -512,6 +519,7 @@ class _AgentPageState extends ConsumerState<AgentPage> {
   }
 
   void _toast(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
@@ -555,11 +563,12 @@ class _AgentPageState extends ConsumerState<AgentPage> {
     try {
       final r = await ref.read(apiProvider).uploadFile(f.path!, f.name);
       final fp = r['path'] ?? r['file_path'] ?? '';
+      if (!mounted) return;
       await _send('[Uploaded file: ${f.name}, path: $fp]');
     } on ApiException catch (e) {
-      _toast(e.message);
+      if (mounted) _toast(e.message);
     } catch (e) {
-      _toast('$e');
+      if (mounted) _toast('$e');
     }
   }
 }
@@ -579,6 +588,71 @@ class _Dot extends StatelessWidget {
       child: Container(
         width: 9, height: 9,
         decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      ),
+    );
+  }
+}
+
+/// Trailing timeline slot: the "thinking…" spinner and the live streamed
+/// assistant text. Subscribes to `streamingText` on its own so every
+/// text_delta rebuilds exactly this subtree — the history above, the composer,
+/// and the app bar are untouched while tokens stream in.
+class _TrailingStreamSlot extends ConsumerWidget {
+  const _TrailingStreamSlot();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final streamingText =
+        ref.watch(agentProvider.select((s) => s.streamingText));
+    final reasoningActive =
+        ref.watch(agentProvider.select((s) => s.reasoningActive));
+    if (streamingText.isEmpty) {
+      if (!reasoningActive) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(left: 22, top: 8, bottom: 8),
+        child: Row(children: [
+          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 10),
+          Text(AppLocalizations.of(context)!.agentThinking,
+              style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.outline)),
+        ]),
+      );
+    }
+    // Streamed assistant text lives INSIDE the scrollable timeline so a long
+    // reply scrolls instead of overflowing the column.
+    return Padding(
+      padding: const EdgeInsets.only(left: 12, right: 12, top: 4, bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            margin: const EdgeInsets.only(right: 10, top: 2),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+                  Theme.of(context).colorScheme.secondary.withValues(alpha: 0.15),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.auto_awesome, size: 16,
+                color: Theme.of(context).colorScheme.primary),
+          ),
+          Expanded(
+            // Render the stream as markdown like the web client does (GFM on,
+            // math deferred until the reply completes) with a pulsing caret.
+            child: MarkdownContent(
+              content: streamingText,
+              streaming: true,
+              showCursor: true,
+            ),
+          ),
+        ],
       ),
     );
   }

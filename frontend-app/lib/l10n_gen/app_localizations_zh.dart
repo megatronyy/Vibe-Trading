@@ -173,6 +173,9 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get reasoningProviderDefault => '跟随供应商默认';
+
+  @override
   String get composerUpload => '上传文档';
 
   @override
@@ -495,6 +498,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get doubleConfirmBody => '无可用生物识别。是否提交该授权方案？';
+
+  @override
+  String get mandateCommitFailed => '授权提交失败，请重试。';
 
   @override
   String get swarmAgents => '智能体';

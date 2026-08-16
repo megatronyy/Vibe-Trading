@@ -40,6 +40,7 @@ class _AlphaBenchPageState extends ConsumerState<AlphaBenchPage> {
     _universeCtrl.dispose();
     _periodCtrl.dispose();
     _topCtrl.dispose();
+    _sse?.dispose();
     super.dispose();
   }
 
@@ -58,7 +59,10 @@ class _AlphaBenchPageState extends ConsumerState<AlphaBenchPage> {
         'top': int.tryParse(_topCtrl.text) ?? 50,
       });
       _sse = SseClient(dio: ref.read(dioProvider), url: api.alphaBenchStreamUrl(jobId))
-        ..connect().listen(_onEvent, onError: (e) => setState(() => _error = '$e'));
+        ..connect().listen(_onEvent,
+            onError: (e) {
+              if (mounted) setState(() => _error = '$e');
+            });
     } on ApiException catch (e) {
       setState(() {
         _running = false;
@@ -68,6 +72,7 @@ class _AlphaBenchPageState extends ConsumerState<AlphaBenchPage> {
   }
 
   void _onEvent(SseEvent ev) {
+    if (!mounted) return;
     final d = ev.json ?? const {};
     switch (ev.type) {
       case 'progress':

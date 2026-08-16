@@ -59,6 +59,7 @@
   "tushareToken": "Tushare token",
   "reasoningLabel": "reasoning: {effort}",
   "@reasoningLabel": {"placeholders": {"effort": {"type": "String"}}},
+  "reasoningProviderDefault": "Provider default",
 
   "composerUpload": "Upload document",
   "composerGoal": "Research goal",
@@ -176,6 +177,7 @@
   "noProfiles": "No profiles in proposal",
   "doubleConfirmTitle": "Confirm mandate",
   "doubleConfirmBody": "No biometrics available. Submit this mandate profile?",
+  "mandateCommitFailed": "Mandate commit failed — please retry.",
 
   "swarmAgents": "agents",
   "swarmWaiting": "Waiting for events…",

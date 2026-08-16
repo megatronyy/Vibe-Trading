@@ -35,10 +35,12 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
   Future<void> _load() async {
     try {
       final runs = await ref.read(apiProvider).listRuns(100);
+      if (!mounted) return;
       _all = runs.where(_isReport).toList();
       _apply();
       setState(() => _loading = false);
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.message;

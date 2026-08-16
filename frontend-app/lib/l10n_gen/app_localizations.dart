@@ -428,6 +428,12 @@ abstract class AppLocalizations {
   /// **'reasoning: {effort}'**
   String reasoningLabel(String effort);
 
+  /// No description provided for @reasoningProviderDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Provider default'**
+  String get reasoningProviderDefault;
+
   /// No description provided for @composerUpload.
   ///
   /// In en, this message translates to:
@@ -1063,6 +1069,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No biometrics available. Submit this mandate profile?'**
   String get doubleConfirmBody;
+
+  /// No description provided for @mandateCommitFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Mandate commit failed — please retry.'**
+  String get mandateCommitFailed;
 
   /// No description provided for @swarmAgents.
   ///

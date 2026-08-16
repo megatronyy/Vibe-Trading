@@ -27,10 +27,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     'base_url': TextEditingController(),
     'api_key': TextEditingController(),
     'temperature': TextEditingController(),
-    'timeout': TextEditingController(),
+    'timeout_seconds': TextEditingController(),
     'max_retries': TextEditingController(),
   };
-  String _reasoningEffort = 'off';
+  // Backend LLM_REASONING_EFFORTS = {"", "none", "low", "medium", "high",
+  // "max"} — "" leaves the setting unset (provider default). Must stay in
+  // sync with agent/src/api/settings_routes.py.
+  static const _reasoningEfforts = ['', 'none', 'low', 'medium', 'high', 'max'];
+  String _reasoningEffort = '';
 
   // Model discovery
   Future<List<String>> _modelsFuture = Future.value(const <String>[]);
@@ -67,10 +71,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           _llmCtrls[k]!.text = (llm[k] ?? '').toString();
         }
         // Clamp to a value the dropdown actually offers, else DropdownButton
-        // asserts (backend may use 'minimal'/'none'/…).
-        final re = llm['reasoning_effort']?.toString() ?? 'off';
-        _reasoningEffort =
-            const {'off', 'low', 'medium', 'high', 'max'}.contains(re) ? re : 'off';
+        // asserts (backend may use 'minimal'/…, which we map to unset).
+        final re = llm['reasoning_effort']?.toString() ?? '';
+        _reasoningEffort = _reasoningEfforts.contains(re) ? re : '';
         _dsCtrl.text = (ds['tushare_token'] ?? '').toString();
         // Fetch available models for the loaded provider.
         final provider = (llm['provider'] ?? '').toString();
@@ -89,8 +92,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     };
     final temp = double.tryParse(_llmCtrls['temperature']!.text);
     if (temp != null) body['temperature'] = temp;
-    final to = int.tryParse(_llmCtrls['timeout']!.text);
-    if (to != null) body['timeout'] = to;
+    final to = int.tryParse(_llmCtrls['timeout_seconds']!.text);
+    if (to != null) body['timeout_seconds'] = to;
     final mr = int.tryParse(_llmCtrls['max_retries']!.text);
     if (mr != null) body['max_retries'] = mr;
     try {
@@ -111,8 +114,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
-  void _toast(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -195,14 +200,21 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         Row(children: [
           Expanded(child: _llmRow('temperature', l.temp)),
           const SizedBox(width: 8),
-          Expanded(child: _llmRow('timeout', l.timeoutSec)),
+          Expanded(child: _llmRow('timeout_seconds', l.timeoutSec)),
           const SizedBox(width: 8),
           Expanded(child: _llmRow('max_retries', l.retries)),
         ]),
         DropdownButton<String>(
           value: _reasoningEffort, isExpanded: true,
-          items: ['off', 'low', 'medium', 'high', 'max'].map((e) => DropdownMenuItem(value: e, child: Text(l.reasoningLabel(e)))).toList(),
-          onChanged: (v) => setState(() => _reasoningEffort = v ?? 'off'),
+          items: _reasoningEfforts
+              .map((e) => DropdownMenuItem(
+                    value: e,
+                    child: Text(e.isEmpty
+                        ? l.reasoningProviderDefault
+                        : l.reasoningLabel(e)),
+                  ))
+              .toList(),
+          onChanged: (v) => setState(() => _reasoningEffort = v ?? ''),
         ),
         FilledButton(onPressed: _saveLLM, child: Text('${l.commonSave} ${l.settingsLLM}')),
         const SizedBox(height: 20),

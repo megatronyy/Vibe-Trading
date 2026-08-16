@@ -21,6 +21,10 @@ Future<void> main() async {
     container.read(localeProvider.notifier).load(),
     container.read(authProvider.notifier).load(),
   ]);
+  // A JWT that expired while the app was closed: try one /auth/refresh. If
+  // that also fails we log out cleanly, so the router lands on /login instead
+  // of every request 401-ing against a stale "logged in" state.
+  await container.read(authProvider.notifier).checkAndRefresh();
 
   runApp(UncontrolledProviderScope(
     container: container,

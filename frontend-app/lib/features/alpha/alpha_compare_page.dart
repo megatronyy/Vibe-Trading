@@ -58,8 +58,12 @@ class _AlphaComparePageState extends ConsumerState<AlphaComparePage> {
         'sort': _sort,
       });
       _sse = SseClient(dio: ref.read(dioProvider), url: api.alphaCompareStreamUrl(jobId))
-        ..connect().listen(_onEvent, onError: (e) => setState(() => _error = '$e'));
+        ..connect().listen(_onEvent,
+            onError: (e) {
+              if (mounted) setState(() => _error = '$e');
+            });
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
         _running = false;
         _error = e.message;
@@ -68,6 +72,7 @@ class _AlphaComparePageState extends ConsumerState<AlphaComparePage> {
   }
 
   void _onEvent(SseEvent ev) {
+    if (!mounted) return;
     final d = ev.json ?? const {};
     switch (ev.type) {
       case 'progress':

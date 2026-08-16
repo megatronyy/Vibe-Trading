@@ -92,18 +92,23 @@ class _RunDetailPageState extends ConsumerState<RunDetailPage> {
 
   Future<void> _ensureSymbol(String sym) async {
     if (_loadedSymbols.contains(sym)) return;
-    _loadedSymbols.add(sym);
     try {
       final run = await ref.read(apiProvider).getRun(widget.runId, chartSymbol: sym);
+      // Only mark loaded on success — a failed fetch stays retryable.
+      _loadedSymbols.add(sym);
       _mergeSeries(run);
       if (mounted) setState(() {});
     } on ApiException catch (e) {
       _toast(e.message);
+    } catch (_) {
+      // Parse/merge failures shouldn't crash the tab; leave it retryable.
     }
   }
 
-  void _toast(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   @override
   Widget build(BuildContext context) {

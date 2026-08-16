@@ -41,10 +41,12 @@ class _AlphaPageState extends ConsumerState<AlphaPage> {
     });
     try {
       final list = await ref.read(apiProvider).listAlphas(universe: _universe, limit: 200);
+      if (!mounted) return;
       _all = list;
       _apply();
       setState(() => _loading = false);
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.message;

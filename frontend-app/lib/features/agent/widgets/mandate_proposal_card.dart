@@ -48,13 +48,18 @@ class _MandateSheetState extends ConsumerState<_MandateSheet> {
     setState(() => _busy = true);
     bool ok = false;
     try {
-      final can = await _auth.canCheckBiometrics || await _auth.isDeviceSupported();
-      if (can) {
+      // Only require biometric auth when the device has hardware AND at least
+      // one biometric enrolled. A device with a lock screen but no enrolled
+      // biometrics can never pass `authenticate` — fall back to the explicit
+      // double-confirm instead of dead-ending the user.
+      final canCheck = await _auth.canCheckBiometrics;
+      final supported = await _auth.isDeviceSupported();
+      if (supported && canCheck) {
         ok = await _auth.authenticate(
           localizedReason: 'Confirm mandate submission',
         );
       } else {
-        // No biometrics → explicit double-confirm.
+        // No biometrics (or none enrolled) → explicit double-confirm.
         ok = await _doubleConfirm();
       }
     } catch (_) {
@@ -67,11 +72,17 @@ class _MandateSheetState extends ConsumerState<_MandateSheet> {
       return;
     }
     final profile = _profiles.isNotEmpty ? _profiles[_selected] : <String, dynamic>{};
-    await ref.read(agentProvider.notifier).commitMandate(_proposalId, profile);
-    if (mounted) {
-      setState(() => _busy = false);
-      Navigator.pop(context);
+    final committed =
+        await ref.read(agentProvider.notifier).commitMandate(_proposalId, profile);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (!committed) {
+      // Keep the sheet open so the user can retry — closing here would lose
+      // the proposal (it only re-opens on a null→non-null transition).
+      _toast(AppLocalizations.of(context)!.mandateCommitFailed);
+      return;
     }
+    Navigator.pop(context);
   }
 
   Future<bool> _doubleConfirm() async {
