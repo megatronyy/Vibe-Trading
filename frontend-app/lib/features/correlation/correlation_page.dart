@@ -72,13 +72,13 @@ class _CorrelationPageState extends ConsumerState<CorrelationPage> {
         const SizedBox(height: 8),
         Wrap(spacing: 6, runSpacing: 6, children: [
           for (final w in _windows)
-            ChoiceChip(label: Text('${w}d'), selected: _days == w, onSelected: (_) => setState(() => _days = w)),
+            ChoiceChip(label: Text(AppLocalizations.of(context)!.windowDays('$w')), selected: _days == w, onSelected: (_) => setState(() => _days = w)),
         ]),
         const SizedBox(height: 6),
         Wrap(spacing: 6, runSpacing: 6, children: [
-          ChoiceChip(label: const Text('pearson'), selected: _method == 'pearson', onSelected: (_) => setState(() => _method = 'pearson')),
-          ChoiceChip(label: const Text('spearman'), selected: _method == 'spearman', onSelected: (_) => setState(() => _method = 'spearman')),
-          FilterChip(label: const Text('regime'), selected: _regime, onSelected: (_) => setState(() => _regime = !_regime)),
+          ChoiceChip(label: Text(AppLocalizations.of(context)!.methodPearson), selected: _method == 'pearson', onSelected: (_) => setState(() => _method = 'pearson')),
+          ChoiceChip(label: Text(AppLocalizations.of(context)!.methodSpearman), selected: _method == 'spearman', onSelected: (_) => setState(() => _method = 'spearman')),
+          FilterChip(label: Text(AppLocalizations.of(context)!.toggleRegime), selected: _regime, onSelected: (_) => setState(() => _regime = !_regime)),
         ]),
         const SizedBox(height: 8),
         FilledButton.icon(onPressed: _loading ? null : _compute, icon: const Icon(Icons.calculate), label: Text(AppLocalizations.of(context)!.compute)),

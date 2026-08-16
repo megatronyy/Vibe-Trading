@@ -498,6 +498,20 @@ class AppLocalizationsAr extends AppLocalizations {
   String get regimeTimeline => 'Regime timeline';
 
   @override
+  String windowDays(String n) {
+    return '${n}d';
+  }
+
+  @override
+  String get methodPearson => 'Pearson';
+
+  @override
+  String get methodSpearman => 'Spearman';
+
+  @override
+  String get toggleRegime => 'Regime';
+
+  @override
   String get goal => 'Goal';
 
   @override

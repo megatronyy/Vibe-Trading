@@ -494,6 +494,20 @@ class AppLocalizationsZh extends AppLocalizations {
   String get regimeTimeline => '市场状态时间线';
 
   @override
+  String windowDays(String n) {
+    return '$n天';
+  }
+
+  @override
+  String get methodPearson => '皮尔逊';
+
+  @override
+  String get methodSpearman => '斯皮尔曼';
+
+  @override
+  String get toggleRegime => '市场状态';
+
+  @override
   String get goal => '目标';
 
   @override

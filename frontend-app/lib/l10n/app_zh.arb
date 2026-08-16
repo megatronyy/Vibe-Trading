@@ -169,6 +169,10 @@
   "compute": "计算",
   "matrix": "矩阵",
   "regimeTimeline": "市场状态时间线",
+  "windowDays": "{n}天",
+  "methodPearson": "皮尔逊",
+  "methodSpearman": "斯皮尔曼",
+  "toggleRegime": "市场状态",
 
   "goal": "目标",
   "goalCriteria": "准则",

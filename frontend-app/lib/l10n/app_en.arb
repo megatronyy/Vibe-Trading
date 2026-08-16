@@ -173,6 +173,11 @@
   "compute": "Compute",
   "matrix": "Matrix",
   "regimeTimeline": "Regime timeline",
+  "windowDays": "{n}d",
+  "@windowDays": {"placeholders": {"n": {"type": "String"}}},
+  "methodPearson": "Pearson",
+  "methodSpearman": "Spearman",
+  "toggleRegime": "Regime",
 
   "goal": "Goal",
   "goalCriteria": "Criteria",

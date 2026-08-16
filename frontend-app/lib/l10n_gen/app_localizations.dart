@@ -1058,6 +1058,30 @@ abstract class AppLocalizations {
   /// **'Regime timeline'**
   String get regimeTimeline;
 
+  /// No description provided for @windowDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{n}d'**
+  String windowDays(String n);
+
+  /// No description provided for @methodPearson.
+  ///
+  /// In en, this message translates to:
+  /// **'Pearson'**
+  String get methodPearson;
+
+  /// No description provided for @methodSpearman.
+  ///
+  /// In en, this message translates to:
+  /// **'Spearman'**
+  String get methodSpearman;
+
+  /// No description provided for @toggleRegime.
+  ///
+  /// In en, this message translates to:
+  /// **'Regime'**
+  String get toggleRegime;
+
   /// No description provided for @goal.
   ///
   /// In en, this message translates to:
